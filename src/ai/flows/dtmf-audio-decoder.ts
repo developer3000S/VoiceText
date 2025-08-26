@@ -40,7 +40,11 @@ const prompt = ai.definePrompt({
   output: {schema: DecodeDtmfAudioOutputSchema},
   prompt: `You are an expert in decoding DTMF (Dual-Tone Multi-Frequency) audio signals into text.
 
-You will receive an audio recording of DTMF tones. Your task is to analyze the audio and convert the DTMF tones into a readable text message. You should determine whether the series of DTMF tones comprises a valid message and whether each DTMF tone should be interpreted as a new letter or the end of a transmission.
+You will receive an audio recording of DTMF tones. Your task is to analyze the audio and convert the DTMF tones into a readable text message. Each tone should be interpreted as a character.
+
+- Analyze the provided audio signal to identify the sequence of DTMF tones.
+- Convert the identified tones into their corresponding text characters.
+- If the audio does not contain recognizable DTMF tones or is silent, you must indicate that the decoding was unsuccessful.
 
 Here is the audio data: {{media url=audioDataUri}}
 
