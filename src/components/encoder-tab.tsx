@@ -19,6 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useLog } from '@/context/log-context';
 
 const FormSchema = z.object({
   text: z.string().min(1, "Сообщение не может быть пустым.").max(100, "Сообщение слишком длинное."),
@@ -32,6 +33,7 @@ export function EncoderTab() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
+  const { addLog } = useLog();
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
@@ -41,32 +43,39 @@ export function EncoderTab() {
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     setIsLoading(true);
     setDtmfSequence(null);
+    addLog(`Запуск кодирования текста: "${data.text}"`);
     const result = await encodeTextAction({ text: data.text });
     setIsLoading(false);
 
     if (result.success) {
       setDtmfSequence(result.data.dtmfSequence);
+      addLog(`Кодирование успешно. Результат: ${result.data.dtmfSequence}`);
     } else {
       toast({
         variant: 'destructive',
         title: 'Ошибка кодирования',
         description: result.error,
       });
+      addLog(`Ошибка кодирования: ${result.error}`, 'error');
     }
   }
 
   async function handlePlay() {
     if (!dtmfSequence) return;
     setIsPlaying(true);
+    addLog('Воспроизведение DTMF последовательности...');
     try {
       await playDtmfSequence(dtmfSequence);
+      addLog('Воспроизведение завершено.');
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("Playback error:", error);
       toast({
         variant: "destructive",
         title: "Ошибка воспроизведения",
         description: "Не удалось воспроизвести тоны. Убедитесь, что ваш браузер поддерживает Web Audio.",
       });
+      addLog(`Ошибка воспроизведения: ${errorMessage}`, 'error');
     }
     setIsPlaying(false);
   }
@@ -74,6 +83,7 @@ export function EncoderTab() {
   async function handleSave() {
     if (!dtmfSequence) return;
     setIsSaving(true);
+    addLog('Сохранение аудиофайла...');
     try {
       const audioBuffer = await renderDtmfSequenceToAudioBuffer(dtmfSequence);
       const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
@@ -85,13 +95,16 @@ export function EncoderTab() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      addLog('Файл успешно сохранен как dtmf_sequence.wav');
     } catch (error) {
+       const errorMessage = error instanceof Error ? error.message : String(error);
        console.error("Save error:", error);
        toast({
         variant: "destructive",
         title: "Ошибка сохранения",
         description: "Не удалось сохранить аудиофайл.",
       });
+      addLog(`Ошибка сохранения файла: ${errorMessage}`, 'error');
     }
     setIsSaving(false);
   }
@@ -123,7 +136,10 @@ export function EncoderTab() {
                         {templates.map((template, index) => (
                           <DropdownMenuItem
                             key={index}
-                            onSelect={() => form.setValue('text', template)}
+                            onSelect={() => {
+                              form.setValue('text', template);
+                              addLog(`Вставлен шаблон: "${template}"`);
+                            }}
                           >
                             {template}
                           </DropdownMenuItem>

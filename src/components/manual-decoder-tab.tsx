@@ -13,6 +13,7 @@ import { decodeAudioAction } from '@/app/actions';
 import { Loader2, Wand2, FileText } from 'lucide-react';
 import { renderDtmfSequenceToAudioBuffer } from '@/lib/dtmf';
 import { bufferToWave } from '@/lib/wav';
+import { useLog } from '@/context/log-context';
 
 function blobToDataURL(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -32,6 +33,7 @@ export function ManualDecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [decodedText, setDecodedText] = useState<string | null>(null);
   const { toast } = useToast();
+  const { addLog } = useLog();
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
@@ -41,14 +43,18 @@ export function ManualDecoderTab() {
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     setIsLoading(true);
     setDecodedText(null);
+    addLog(`Ручной декодер: запуск для последовательности "${data.sequence}"`);
     try {
+      addLog('Генерация аудио из последовательности...');
       const audioBuffer = await renderDtmfSequenceToAudioBuffer(data.sequence);
       const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
       const audioDataUri = await blobToDataURL(new Blob([wavBlob], { type: 'audio/wav' }));
+      addLog('Аудио сгенерировано, отправка в AI для декодирования...');
 
       const result = await decodeAudioAction({ audioDataUri });
       if (result.success) {
         setDecodedText(result.data.decodedText);
+        addLog(`Ручное декодирование успешно. Результат: "${result.data.decodedText}"`);
       } else {
         toast({
           variant: 'destructive',
@@ -56,8 +62,10 @@ export function ManualDecoderTab() {
           description: result.error,
         });
         setDecodedText(null);
+        addLog(`Ошибка ручного декодирования: ${result.error}`, 'error');
       }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(error);
       toast({
         variant: 'destructive',
@@ -65,6 +73,7 @@ export function ManualDecoderTab() {
         description: 'Не удалось обработать последовательность.',
       });
       setDecodedText(null);
+      addLog(`Критическая ошибка при ручном декодировании: ${errorMessage}`, 'error');
     }
     setIsLoading(false);
   }

@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { decodeAudioAction } from '@/app/actions';
 import { Loader2, Mic, Square, FileText, Upload } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
+import { useLog } from '@/context/log-context';
 
 function blobToDataURL(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -24,15 +25,19 @@ export function DecoderTab() {
   const { toast } = useToast();
   const { isRecording, audioBlob, startRecording, stopRecording } = useRecorder();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { addLog } = useLog();
 
-  const handleDecode = useCallback(async (blob: Blob) => {
+  const handleDecode = useCallback(async (blob: Blob, source: string) => {
     setIsLoading(true);
     setDecodedText(null);
+    addLog(`Запуск декодирования аудио из источника: ${source}`);
     try {
       const audioDataUri = await blobToDataURL(blob);
+      addLog(`Аудио преобразовано в Data URI, отправка в AI...`);
       const result = await decodeAudioAction({ audioDataUri });
       if (result.success) {
         setDecodedText(result.data.decodedText);
+        addLog(`Декодирование успешно. Результат: "${result.data.decodedText}"`);
       } else {
         toast({
           variant: 'destructive',
@@ -40,34 +45,48 @@ export function DecoderTab() {
           description: result.error,
         });
         setDecodedText(null);
+        addLog(`Ошибка декодирования от AI: ${result.error}`, 'error');
       }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       toast({
         variant: 'destructive',
         title: 'Ошибка',
         description: 'Не удалось обработать аудиофайл.',
       });
       setDecodedText(null);
+      addLog(`Ошибка обработки аудио: ${errorMessage}`, 'error');
     }
     setIsLoading(false);
-  }, [toast]);
+  }, [toast, addLog]);
   
   useEffect(() => {
     if (audioBlob) {
-      handleDecode(audioBlob);
+      handleDecode(audioBlob, 'микрофон');
     }
   }, [audioBlob, handleDecode]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      handleDecode(file);
+      addLog(`Выбран файл для декодирования: ${file.name}`);
+      handleDecode(file, `файл (${file.name})`);
     }
   };
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();
   };
+  
+  const handleStartRecording = () => {
+    addLog('Запись с микрофона начата...');
+    startRecording();
+  }
+
+  const handleStopRecording = () => {
+    addLog('Запись с микрофона остановлена.');
+    stopRecording();
+  }
 
   return (
     <Card className="border-0 shadow-none">
@@ -77,7 +96,7 @@ export function DecoderTab() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Button onClick={isRecording ? stopRecording : startRecording} className="w-full" disabled={isLoading}>
+          <Button onClick={isRecording ? handleStopRecording : handleStartRecording} className="w-full" disabled={isLoading}>
             {isRecording ? (
               <>
                 <Square className="mr-2 h-4 w-4 animate-pulse fill-current" /> Остановить запись
