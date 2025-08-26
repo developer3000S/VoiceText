@@ -87,48 +87,71 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
 }
 
 function decodeSequence(sequence: string[]): string {
-    let result = '';
-    let currentKey = '';
-    let keyPressCount = 0;
-    let isUpperCase = false;
-    let timer: any = null;
-
-    const appendChar = () => {
-        if (!currentKey) return;
-        const chars = KEY_MAP[currentKey];
-        if (chars) {
-            let char = chars[(keyPressCount - 1) % chars.length];
-            if (isUpperCase && char !== ' ') {
-                char = char.toUpperCase();
-                isUpperCase = false; // Auto-reset after one char
-            }
-            result += char;
-        }
-        currentKey = '';
-        keyPressCount = 0;
-    };
-
-    for (const tone of sequence) {
-         if (tone === '*') {
-            appendChar();
-            isUpperCase = !isUpperCase;
-            continue;
-        }
-        if (tone === '#') {
-            appendChar();
-            continue;
-        }
-
-        if (tone === currentKey) {
-            keyPressCount++;
-        } else {
-            appendChar();
-            currentKey = tone;
-            keyPressCount = 1;
-        }
+    if (!sequence || sequence.length === 0) {
+        return '';
     }
 
-    appendChar(); // Append the last character
+    let result = '';
+    let isUpperCase = false;
+    let i = 0;
+
+    while (i < sequence.length) {
+        const currentTone = sequence[i];
+
+        if (currentTone === '*') {
+            isUpperCase = !isUpperCase;
+            i++;
+            continue;
+        }
+        
+        if (currentTone === '#') {
+            i++;
+            continue;
+        }
+
+        const keyChars = KEY_MAP[currentTone];
+        if (!keyChars) {
+            i++;
+            continue;
+        }
+
+        let pressCount = 1;
+        while (i + 1 < sequence.length && sequence[i + 1] === currentTone) {
+            pressCount++;
+            i++;
+        }
+
+        let char = keyChars[(pressCount - 1) % keyChars.length];
+        
+        if (isUpperCase && char !== ' ') {
+            const isRussian = (char >= 'а' && char <= 'я');
+            const isLatin = (char >= 'a' && char <= 'z');
+            if (isRussian || isLatin) {
+               char = char.toUpperCase();
+               // For Russian letters, we need to switch case back manually for next letter
+               if (isRussian) {
+                   const nextToneIndex = sequence.findIndex((t, idx) => idx > i && t !== '#' && t !== '*');
+                   if(nextToneIndex !== -1) {
+                       const nextTone = sequence[nextToneIndex];
+                       const nextNextTone = sequence[nextToneIndex + 1];
+                       // Only turn off uppercase if next letter is not also uppercase
+                       if(nextTone !== '*' && nextNextTone !== '*') {
+                           isUpperCase = false;
+                       }
+                   } else {
+                       isUpperCase = false;
+                   }
+
+               } else {
+                 isUpperCase = false; // Auto-reset for latin
+               }
+            }
+        }
+        
+        result += char;
+        i++;
+    }
+
     return result;
 }
 

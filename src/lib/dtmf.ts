@@ -46,25 +46,26 @@ const CHAR_MAP: { [key: string]: string } = {
 export function textToDtmfSequence(text: string): string {
     let sequence: string[] = [];
     let lastKey = '';
-    let isUpperCase = false;
+    let isCurrentlyUpperCase = false;
 
     for (const char of text) {
         const lowerChar = char.toLowerCase();
-        const isLetter = (lowerChar >= 'a' && lowerChar <= 'z') || (lowerChar >= 'а' && lowerChar <= 'я');
+        const isLetter = (lowerChar >= 'a' && lowerChar <= 'z') || (lowerChar >= 'а' && lowerChar <= 'я' || lowerChar === 'ё');
+        const isUpperCase = isLetter && char === char.toUpperCase() && char !== lowerChar;
         
-        if (isLetter && char !== lowerChar && !isUpperCase) {
+        if (isUpperCase && !isCurrentlyUpperCase) {
             sequence.push('*');
-            isUpperCase = true;
-        } else if (isLetter && char === lowerChar && isUpperCase) {
+            isCurrentlyUpperCase = true;
+        } else if (!isUpperCase && isCurrentlyUpperCase && isLetter) {
             sequence.push('*');
-            isUpperCase = false;
+            isCurrentlyUpperCase = false;
         }
 
         const dtmfChars = CHAR_MAP[lowerChar];
         if (dtmfChars) {
             const currentKey = dtmfChars[0];
             if (currentKey === lastKey) {
-                sequence.push('#'); // Use # as a separator for same-key characters
+                sequence.push('#'); // Separator for same-key characters
             }
             sequence.push(...dtmfChars.split(''));
             lastKey = currentKey;
