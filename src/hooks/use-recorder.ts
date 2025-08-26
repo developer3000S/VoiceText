@@ -2,6 +2,8 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from './use-toast';
+import { Capacitor } from '@capacitor/core';
+
 
 export const useRecorder = () => {
     const { toast } = useToast();
@@ -20,9 +22,13 @@ export const useRecorder = () => {
             });
             return;
         }
+
         try {
-            // Запрашиваем доступ к микрофону. На Android это вызовет системный запрос разрешений.
+            // This is the key part: we explicitly call getUserMedia to trigger the permission prompt on mobile.
+            // On web, it also asks for permission.
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+            // If we get the stream, permission was granted.
             mediaRecorderRef.current = new MediaRecorder(stream);
             audioChunksRef.current = [];
 
@@ -32,7 +38,7 @@ export const useRecorder = () => {
 
             mediaRecorderRef.current.onstop = () => {
                 const blob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
-                // Останавливаем все треки, чтобы индикатор записи погас
+                // Stop all tracks to turn off the recording indicator.
                 stream.getTracks().forEach(track => track.stop());
                 if (stopResolver) {
                     stopResolver(blob);
@@ -45,14 +51,19 @@ export const useRecorder = () => {
         } catch (err) {
             console.error("Error accessing microphone:", err);
             let description = "Не удалось начать запись. Проверьте разрешения для браузера или приложения.";
-            if (err instanceof DOMException && err.name === 'NotAllowedError') {
+            // This error is specifically for permission denial.
+            if (err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
                 description = "Вы не предоставили доступ к микрофону. Пожалуйста, разрешите доступ в настройках."
+                 if (Capacitor.isNativePlatform()) {
+                    description += " Возможно, потребуется перезапустить приложение после предоставления разрешений в настройках системы.";
+                }
             }
             toast({
               variant: "destructive",
               title: "Ошибка микрофона",
               description: description,
             })
+            setIsRecording(false);
         }
     }, [toast]);
     
@@ -63,7 +74,7 @@ export const useRecorder = () => {
                 mediaRecorderRef.current.stop();
                 setIsRecording(false);
             } else {
-                // Если запись уже была остановлена, возвращаем пустой Blob
+                // If recording was already stopped or never started, return an empty Blob.
                 resolve(new Blob());
             }
         })
