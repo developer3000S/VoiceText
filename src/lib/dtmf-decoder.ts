@@ -6,9 +6,10 @@ import { REVERSE_CHAR_MAP } from './dtmf';
 
 const TONE_DURATION_MS = 100;
 const PAUSE_DURATION_MS = 50; 
-const MIN_PAUSE_MS = 40; 
+const MIN_PAUSE_MS = 30; 
 const THRESHOLD = 100; 
 const SAMPLE_RATE = 44100;
+const DEBOUNCE_MS = 150; // Ignore same tone detection within this time
 
 const DTMF_FREQUENCIES: { [key: string]: [number, number] } = {
   '1': [697, 1209], '2': [697, 1336], '3': [697, 1477], 'A': [697, 1633],
@@ -86,31 +87,47 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
     let result = '';
     
     const startIdx = sequence.indexOf('*');
-    const endIdx = sequence.lastIndexOf('#');
-
     if (startIdx === -1) {
         addLog('Стартовый символ * не найден. Декодирование невозможно.', 'error');
         return '';
     }
-     if (endIdx === -1) {
+    addLog(`Стартовый символ * найден на позиции ${startIdx}.`);
+    
+    // The actual payload starts after the first '*'
+    let payload = sequence.slice(startIdx + 1);
+
+    const endIdx = payload.lastIndexOf('#');
+    
+    if (endIdx !== -1) {
+        addLog(`Стоповый символ # найден. Обрезаем пакет данных.`);
+        payload = payload.slice(0, endIdx);
+    } else {
         addLog('Стоповый символ # не найден. Сообщение может быть неполным.', 'warning');
     }
-    if (endIdx !== -1 && endIdx < startIdx) {
-        addLog('Стоповый символ # найден перед стартовым символом *. Сообщение некорректно.', 'error');
+
+    addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
+
+    if (payload.length === 0) {
+        addLog(`Пакет данных пуст.`, 'warning');
         return '';
     }
 
-    const payload = sequence.slice(startIdx + 1, endIdx === -1 ? undefined : endIdx);
-    addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
+    if (payload.some(tone => tone === '*' || tone === '#')) {
+        addLog('Внутри пакета данных обнаружены служебные символы (* или #). Это может указывать на ошибки распознавания.', 'warning');
+        payload = payload.filter(tone => tone !== '*' && tone !== '#');
+        addLog(`Очищенный пакет данных: [${payload.join(',')}]`);
+    }
 
     if (payload.length % 2 !== 0) {
         addLog(`Длина пакета данных нечетная (${payload.length}). Последний тон будет проигнорирован.`, 'warning');
         payload.pop();
     }
+    
     if (payload.length === 0) {
-        addLog(`Пакет данных пуст.`, 'warning');
+        addLog(`Пакет данных пуст после очистки.`, 'warning');
         return '';
     }
+
 
     for (let i = 0; i < payload.length; i += 2) {
         const codePair = payload[i] + payload[i + 1];
@@ -145,7 +162,6 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
         const originalAudioBuffer = await getAudioContext(blob);
         addLog(`Аудиофайл успешно загружен. Длительность: ${originalAudioBuffer.duration.toFixed(2)}с, Частота: ${originalAudioBuffer.sampleRate}Гц`);
         
-        // --- Фильтрация аудио ---
         addLog('Применение цифровых фильтров для очистки аудио...');
         const offlineCtx = new OfflineAudioContext(
             originalAudioBuffer.numberOfChannels,
@@ -176,37 +192,41 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
 
         const toneSamples = Math.floor(SAMPLE_RATE * (TONE_DURATION_MS / 1000));
         const pauseSamples = Math.floor(SAMPLE_RATE * (PAUSE_DURATION_MS / 1000));
-        const minPauseSamples = Math.floor(SAMPLE_RATE * (MIN_PAUSE_MS / 1000));
-        const stepSamples = Math.floor(toneSamples / 2); // Step less than a full tone duration
+        const stepSamples = Math.floor(toneSamples / 2);
         
         addLog(`Анализ аудио... Длительность тона: ${toneSamples} семплов, Пауза: ${pauseSamples} семплов`);
 
         const detectedTones: string[] = [];
-        let i = 0;
-        
-        while (i < data.length) {
-            const chunkEnd = Math.min(i + toneSamples, data.length);
-            // Ensure chunk is not smaller than tone duration for reliable detection
-            if (chunkEnd - i < toneSamples) {
-                break;
-            }
+        let lastTone: string | null = null;
+        let lastToneTime = 0;
 
-            const chunk = data.slice(i, chunkEnd);
+        let i = 0;
+        while (i + toneSamples <= data.length) {
+            const chunk = data.slice(i, i + toneSamples);
             const currentTone = detectTone(chunk, SAMPLE_RATE);
-            
+            const currentTime = Date.now();
+
             if (currentTone) {
-                const currentTime = i / SAMPLE_RATE;
-                addLog(`Обнаружен тон: '${currentTone}' на ${(currentTime*1000).toFixed(0)}мс`);
-                detectedTones.push(currentTone);
-                 if (currentTone === '#') {
-                    addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
-                    break; 
+                const timeSinceLast = currentTime - lastToneTime;
+                // Debounce check: is it a new tone or an echo of the last one?
+                if (currentTone !== lastTone || timeSinceLast > DEBOUNCE_MS) {
+                    detectedTones.push(currentTone);
+                    addLog(`Обнаружен тон: '${currentTone}' на ${(i / SAMPLE_RATE * 1000).toFixed(0)}мс`);
+                    lastTone = currentTone;
+                    lastToneTime = currentTime;
+                     if (currentTone === '#') {
+                        addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
+                        break; 
+                    }
+                    i += toneSamples + pauseSamples; // Skip forward past the tone and pause
+                } else {
+                     // It's a bounce/echo, ignore it and just step forward
+                    i += stepSamples;
                 }
-                // Skip past the detected tone and the following pause
-                i += toneSamples + pauseSamples;
             } else {
-                 // If no tone, advance by a smaller step to find the next tone
-                 i += stepSamples;
+                // No tone detected
+                lastTone = null;
+                i += stepSamples;
             }
         }
         
