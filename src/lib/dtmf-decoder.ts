@@ -142,25 +142,20 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
         addLog(`Анализ аудио... Размер блока: ${chunkSize} семплов, Шаг: ${stepSize} семплов`);
 
         const detectedTones: string[] = [];
-        let lastTone: string | null = null;
-        let lastToneTime = -Infinity;
-
-        // More robust detection loop
-        for (let i = 0; i + chunkSize <= data.length; i += Math.floor(stepSize / 2)) {
+        let i = 0;
+        while (i + chunkSize <= data.length) {
             const chunk = data.slice(i, i + chunkSize);
             const tone = detectTone(chunk, SAMPLE_RATE);
-            const currentTime = (i / SAMPLE_RATE) * 1000;
             
-            if(tone) {
-                // Check if this is a new, distinct tone, not a continuation of the last one
-                if (tone !== lastTone || (currentTime > lastToneTime + TONE_DURATION_MS + PAUSE_DURATION_MS - 10)) {
-                    detectedTones.push(tone);
-                    lastToneTime = currentTime;
-                    addLog(`Обнаружен тон: '${tone}' на ${currentTime.toFixed(0)}мс`);
-                }
-                lastTone = tone;
+            if (tone) {
+                const currentTime = (i / SAMPLE_RATE) * 1000;
+                addLog(`Обнаружен тон: '${tone}' на ${currentTime.toFixed(0)}мс`);
+                detectedTones.push(tone);
+                // Skip past the detected tone and the following pause
+                i += stepSize; 
             } else {
-                lastTone = null;
+                // If no tone, advance by a smaller amount to not miss the start of a tone
+                i += Math.floor(chunkSize / 4);
             }
         }
         
