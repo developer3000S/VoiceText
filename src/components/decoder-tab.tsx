@@ -1,51 +1,41 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { decodeAudioAction } from '@/app/actions';
 import { Loader2, Mic, Square, FileText, Upload } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
+import { decodeDtmfFromAudio } from '@/lib/dtmf-decoder';
 
-function blobToDataURL(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.onabort = () => reject(new Error("Чтение прервано"));
-    reader.readAsDataURL(blob);
-  });
-}
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [decodedText, setDecodedText] = useState<string | null>(null);
   const { toast } = useToast();
-  const { isRecording, audioBlob, startRecording, stopRecording } = useRecorder();
+  const { isRecording, startRecording, stopRecording, getAudioBlob } = useRecorder();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addLog } = useLog();
 
   const handleDecode = useCallback(async (blob: Blob, source: string) => {
     setIsLoading(true);
     setDecodedText(null);
-    addLog(`Запуск декодирования аудио из источника: ${source}`);
+    addLog(`Запуск локального декодирования аудио из источника: ${source}`);
     try {
-      const audioDataUri = await blobToDataURL(blob);
-      addLog(`Аудио преобразовано в Data URI, отправка в AI...`);
-      const result = await decodeAudioAction({ audioDataUri });
-      if (result.success) {
-        setDecodedText(result.data.decodedText);
-        addLog(`Декодирование успешно. Результат: "${result.data.decodedText}"`);
+      const text = await decodeDtmfFromAudio(blob);
+      if (text) {
+        setDecodedText(text);
+        addLog(`Декодирование успешно. Результат: "${text}"`);
       } else {
+        const errorMsg = 'Не удалось распознать DTMF тоны в аудио.';
         toast({
           variant: 'destructive',
           title: 'Ошибка декодирования',
-          description: result.error,
+          description: errorMsg,
         });
         setDecodedText(null);
-        addLog(`Ошибка декодирования от AI: ${result.error}`, 'error');
+        addLog(errorMsg, 'error');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -60,12 +50,6 @@ export function DecoderTab() {
     setIsLoading(false);
   }, [toast, addLog]);
   
-  useEffect(() => {
-    if (audioBlob) {
-      handleDecode(audioBlob, 'микрофон');
-    }
-  }, [audioBlob, handleDecode]);
-
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -83,9 +67,12 @@ export function DecoderTab() {
     startRecording();
   }
 
-  const handleStopRecording = () => {
+  const handleStopRecording = async () => {
     addLog('Запись с микрофона остановлена.');
-    stopRecording();
+    const blob = await stopRecording();
+    if(blob) {
+      handleDecode(blob, 'микрофон');
+    }
   }
 
   return (

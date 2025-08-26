@@ -9,9 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { encodeTextAction } from '@/app/actions';
 import { Loader2, PlayCircle, Volume2, Download, CircleDashed, PlusCircle } from 'lucide-react';
-import { playDtmfSequence, renderDtmfSequenceToAudioBuffer } from '@/lib/dtmf';
+import { playDtmfSequence, renderDtmfSequenceToAudioBuffer, textToDtmfSequence } from '@/lib/dtmf';
 import { bufferToWave } from '@/lib/wav';
 import {
   DropdownMenu,
@@ -43,21 +42,23 @@ export function EncoderTab() {
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     setIsLoading(true);
     setDtmfSequence(null);
-    addLog(`Запуск кодирования текста: "${data.text}"`);
-    const result = await encodeTextAction({ text: data.text });
-    setIsLoading(false);
-
-    if (result.success) {
-      setDtmfSequence(result.data.dtmfSequence);
-      addLog(`Кодирование успешно. Результат: ${result.data.dtmfSequence}`);
-    } else {
-      toast({
+    addLog(`Запуск локального кодирования текста: "${data.text}"`);
+    
+    try {
+      const sequence = textToDtmfSequence(data.text);
+      setDtmfSequence(sequence);
+      addLog(`Кодирование успешно. Результат: ${sequence}`);
+    } catch (error) {
+       const errorMessage = error instanceof Error ? error.message : String(error);
+       toast({
         variant: 'destructive',
         title: 'Ошибка кодирования',
-        description: result.error,
+        description: errorMessage,
       });
-      addLog(`Ошибка кодирования: ${result.error}`, 'error');
+      addLog(`Ошибка кодирования: ${errorMessage}`, 'error');
     }
+
+    setIsLoading(false);
   }
 
   async function handlePlay() {

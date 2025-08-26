@@ -6,9 +6,11 @@ import { useToast } from './use-toast';
 export const useRecorder = () => {
     const { toast } = useToast();
     const [isRecording, setIsRecording] = useState(false);
-    const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
+    
+    // Promise resolvers for when the recording is stopped
+    let stopResolver: ((blob: Blob) => void) | null = null;
 
     const startRecording = useCallback(async () => {
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -23,13 +25,15 @@ export const useRecorder = () => {
 
                 mediaRecorderRef.current.onstop = () => {
                     const blob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
-                    setAudioBlob(blob);
                     stream.getTracks().forEach(track => track.stop()); // Stop the microphone access
+                    if (stopResolver) {
+                        stopResolver(blob);
+                        stopResolver = null;
+                    }
                 };
 
                 mediaRecorderRef.current.start();
                 setIsRecording(true);
-                setAudioBlob(null);
             } catch (err) {
                 console.error("Error accessing microphone:", err);
                 toast({
@@ -47,12 +51,24 @@ export const useRecorder = () => {
         }
     }, [toast]);
 
-    const stopRecording = useCallback(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
-            setIsRecording(false);
-        }
+    const stopRecording = useCallback((): Promise<Blob> => {
+        return new Promise((resolve) => {
+             if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                stopResolver = resolve;
+                mediaRecorderRef.current.stop();
+                setIsRecording(false);
+            } else {
+                resolve(new Blob()); // Resolve with empty blob if not recording
+            }
+        })
     }, []);
+    
+    const getAudioBlob = useCallback((): Blob | null => {
+        if(audioChunksRef.current.length > 0) {
+            return new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
+        }
+        return null;
+    }, [])
 
-    return { isRecording, audioBlob, startRecording, stopRecording };
+    return { isRecording, startRecording, stopRecording, getAudioBlob };
 };
