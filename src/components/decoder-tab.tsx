@@ -9,7 +9,7 @@ import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
 import { decodeDtmfFromAudio } from '@/lib/dtmf-decoder';
 import { Capacitor } from '@capacitor/core';
-import { Plugins } from '@capacitor/core';
+import { Plugins } from '@capacitor/core'; // Re-add this line
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
