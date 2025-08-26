@@ -115,7 +115,7 @@ export function DecoderTab() {
             ref={fileInputRef}
             onChange={handleFileChange}
             className="hidden"
-            accept="audio/*"
+            accept="audio/wav,audio/webm,audio/mp3,audio/ogg,audio/*"
           />
         </div>
         {(isLoading || decodedText) && (
