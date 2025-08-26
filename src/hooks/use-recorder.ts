@@ -2,6 +2,8 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from './use-toast';
+import { Capacitor } from '@capacitor/core';
+// Do not import VoiceRecorder directly, it will be imported dynamically.
 
 export const useRecorder = () => {
     const { toast } = useToast();
@@ -11,8 +13,39 @@ export const useRecorder = () => {
     
     // Promise resolvers for when the recording is stopped
     let stopResolver: ((blob: Blob) => void) | null = null;
+    
+    const requestPermissions = async (): Promise<boolean> => {
+        if (Capacitor.isNativePlatform()) {
+             try {
+                // Dynamic import for capacitor plugin
+                const { VoiceRecorder } = await import('@capacitor-community/voice-recorder');
+                const permResult = await VoiceRecorder.requestAudioRecordingPermission();
+                if(!permResult.value) {
+                     toast({
+                      variant: "destructive",
+                      title: "Ошибка разрешений",
+                      description: "Для записи голоса приложению нужен доступ к микрофону. Пожалуйста, предоставьте разрешение.",
+                    });
+                    return false;
+                }
+                return true;
+             } catch (e) {
+                 toast({
+                  variant: "destructive",
+                  title: "Ошибка плагина",
+                  description: `Не удалось запросить разрешения: ${(e as Error).message}`,
+                });
+                return false;
+             }
+        }
+        // For web, permission is requested by getUserMedia
+        return true;
+    }
 
     const startRecording = useCallback(async () => {
+        const hasPermission = await requestPermissions();
+        if (!hasPermission) return;
+
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -39,7 +72,7 @@ export const useRecorder = () => {
                 toast({
                   variant: "destructive",
                   title: "Ошибка микрофона",
-                  description: "Не удалось получить доступ к микрофону. Проверьте разрешения в браузере.",
+                  description: "Не удалось получить доступ к микрофону. Проверьте разрешения в браузере или настройках.",
                 })
             }
         } else {
