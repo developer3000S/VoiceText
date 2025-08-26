@@ -38,7 +38,7 @@ export function DecoderTab() {
           title: 'Ошибка декодирования',
           description: result.error,
         });
-        setDecodedText('Не удалось декодировать.');
+        setDecodedText(null);
       }
     } catch (error) {
       toast({
@@ -46,7 +46,7 @@ export function DecoderTab() {
         title: 'Ошибка',
         description: 'Не удалось обработать аудиофайл.',
       });
-      setDecodedText('Ошибка обработки аудио.');
+      setDecodedText(null);
     }
     setIsLoading(false);
   }, [toast]);
