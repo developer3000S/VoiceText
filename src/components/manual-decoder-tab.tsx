@@ -55,7 +55,7 @@ export function ManualDecoderTab() {
           title: 'Ошибка декодирования',
           description: result.error,
         });
-        setDecodedText('Не удалось декодировать последовательность.');
+        setDecodedText(null);
       }
     } catch (error) {
       console.error(error);
@@ -64,7 +64,7 @@ export function ManualDecoderTab() {
         title: 'Ошибка',
         description: 'Не удалось обработать последовательность.',
       });
-      setDecodedText('Ошибка обработки последовательности.');
+      setDecodedText(null);
     }
     setIsLoading(false);
   }
