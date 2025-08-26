@@ -10,13 +10,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { encodeTextAction } from '@/app/actions';
-import { Loader2, PlayCircle, Volume2, Download, CircleDashed } from 'lucide-react';
+import { Loader2, PlayCircle, Volume2, Download, CircleDashed, PlusCircle } from 'lucide-react';
 import { playDtmfSequence, renderDtmfSequenceToAudioBuffer } from '@/lib/dtmf';
 import { bufferToWave } from '@/lib/wav';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const FormSchema = z.object({
   text: z.string().min(1, "Сообщение не может быть пустым.").max(100, "Сообщение слишком длинное."),
 });
+
+const templates = ["Привет!", "Пока!", "Как дела?"];
 
 export function EncoderTab() {
   const [isLoading, setIsLoading] = useState(false);
@@ -102,7 +110,27 @@ export function EncoderTab() {
               name="text"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Ваше сообщение</FormLabel>
+                  <div className="flex justify-between items-center">
+                    <FormLabel>Ваше сообщение</FormLabel>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <PlusCircle className="mr-2 h-4 w-4" />
+                          Шаблоны
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {templates.map((template, index) => (
+                          <DropdownMenuItem
+                            key={index}
+                            onSelect={() => form.setValue('text', template)}
+                          >
+                            {template}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                   <FormControl>
                     <Textarea placeholder="Введите ваше секретное сообщение..." {...field} />
                   </FormControl>
