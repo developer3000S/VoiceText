@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
@@ -9,81 +8,15 @@ import { Loader2, Mic, Square, FileText, Upload } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
 import { decodeDtmfFromAudio } from '@/lib/dtmf-decoder';
-import { Capacitor, Plugins } from '@capacitor/core';
+
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [decodedText, setDecodedText] = useState<string | null>(null);
-  const [hasMicrophonePermission, setHasMicrophonePermission] = useState(false);
-  const [isPermissionChecked, setIsPermissionChecked] = useState(false);
-
   const { toast } = useToast();
-  const { isRecording, startRecording, stopRecording } = useRecorder();
+  const { isRecording, startRecording, stopRecording, getAudioBlob } = useRecorder();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addLog } = useLog();
-
-  const checkAndRequestPermissions = useCallback(async () => {
-    if (!Capacitor.isNativePlatform()) {
-      setHasMicrophonePermission(true);
-      setIsPermissionChecked(true);
-      return true;
-    }
-
-    try {
-      const { Permissions } = Plugins;
-      if (!Permissions) {
-        addLog('Permissions plugin is not available.', 'error');
-        toast({ variant: 'destructive', title: 'Ошибка', description: 'Не удалось загрузить плагин разрешений.' });
-        setIsPermissionChecked(true);
-        return false;
-      }
-      
-      let permStatus = await Permissions.check({ name: 'microphone' });
-
-      if (permStatus.state === 'granted') {
-        setHasMicrophonePermission(true);
-        setIsPermissionChecked(true);
-        addLog('Разрешение на микрофон уже предоставлено.', 'info');
-        return true;
-      }
-
-      if (permStatus.state === 'prompt') {
-        permStatus = await Permissions.request({ name: 'microphone' });
-      }
-
-      if (permStatus.state === 'granted') {
-        setHasMicrophonePermission(true);
-        addLog('Разрешение на микрофон было успешно получено.', 'info');
-      } else {
-        setHasMicrophonePermission(false);
-        addLog('Пользователь отказал в доступе к микрофону.', 'warning');
-        toast({
-          variant: 'destructive',
-          title: 'Доступ запрещен',
-          description: 'Для записи аудио необходимо разрешение на использование микрофона.',
-        });
-      }
-      return permStatus.state === 'granted';
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      addLog(`Ошибка при запросе разрешений: ${errorMessage}`, 'error');
-      toast({ variant: 'destructive', title: 'Ошибка разрешений', description: errorMessage });
-      return false;
-    } finally {
-      setIsPermissionChecked(true);
-    }
-  }, [addLog, toast]);
-  
-  useEffect(() => {
-    if(Capacitor.isNativePlatform()){
-        checkAndRequestPermissions();
-    } else {
-        setHasMicrophonePermission(true);
-        setIsPermissionChecked(true);
-    }
-  }, [checkAndRequestPermissions]);
-
 
   const handleDecode = useCallback(async (blob: Blob, source: string) => {
     setIsLoading(true);
@@ -102,6 +35,7 @@ export function DecoderTab() {
           description: errorMsg,
         });
         setDecodedText(null);
+        // Log is already added inside decodeDtmfFromAudio
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -128,10 +62,7 @@ export function DecoderTab() {
     fileInputRef.current?.click();
   };
   
-  const handleStartRecording = async () => {
-    const permissionGranted = await checkAndRequestPermissions();
-    if(!permissionGranted) return;
-    
+  const handleStartRecording = () => {
     addLog('Запись с микрофона начата...');
     startRecording();
   }
@@ -139,25 +70,11 @@ export function DecoderTab() {
   const handleStopRecording = async () => {
     addLog('Запись с микрофона остановлена.');
     const blob = await stopRecording();
-    if (blob && blob.size > 0) {
+    if(blob && blob.size > 0) {
       handleDecode(blob, 'микрофон');
     } else {
       addLog('Запись пуста, декодирование отменено.', 'warning');
     }
-  }
-
-  if (!isPermissionChecked) {
-     return (
-       <Card className="border-0 shadow-none">
-        <CardHeader>
-          <CardTitle>Декодер DTMF в текст</CardTitle>
-          <CardDescription>Проверка разрешений...</CardDescription>
-        </CardHeader>
-        <CardContent className="flex justify-center items-center p-6">
-           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </CardContent>
-       </Card>
-     )
   }
 
   return (
@@ -168,11 +85,7 @@ export function DecoderTab() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Button 
-            onClick={isRecording ? handleStopRecording : handleStartRecording} 
-            className="w-full" 
-            disabled={isLoading || !hasMicrophonePermission}
-          >
+          <Button onClick={isRecording ? handleStopRecording : handleStartRecording} className="w-full" disabled={isLoading}>
             {isRecording ? (
               <>
                 <Square className="mr-2 h-4 w-4 animate-pulse fill-current" /> Остановить запись
@@ -194,17 +107,6 @@ export function DecoderTab() {
             accept="audio/wav,audio/mp3,audio/webm,audio/ogg,audio/*"
           />
         </div>
-        
-        {!hasMicrophonePermission && Capacitor.isNativePlatform() && (
-            <Card className="border-destructive bg-destructive/10 mt-4">
-                <CardContent className="p-4 text-center text-destructive">
-                   <p className="text-sm">
-                       Доступ к микрофону запрещен. Пожалуйста, предоставьте разрешение в настройках вашего устройства.
-                   </p>
-                </CardContent>
-            </Card>
-        )}
-
         {(isLoading || decodedText) && (
           <Card className="bg-muted/50 mt-4">
             <CardHeader>
