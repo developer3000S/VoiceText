@@ -14,7 +14,7 @@ import { Loader2, PlayCircle, Volume2 } from 'lucide-react';
 import { playDtmfSequence } from '@/lib/dtmf';
 
 const FormSchema = z.object({
-  text: z.string().min(1, "Message cannot be empty.").max(100, "Message is too long."),
+  text: z.string().min(1, "Сообщение не может быть пустым.").max(100, "Сообщение слишком длинное."),
 });
 
 export function EncoderTab() {
@@ -39,7 +39,7 @@ export function EncoderTab() {
     } else {
       toast({
         variant: 'destructive',
-        title: 'Encoding Error',
+        title: 'Ошибка кодирования',
         description: result.error,
       });
     }
@@ -54,8 +54,8 @@ export function EncoderTab() {
       console.error("Playback error:", error);
       toast({
         variant: "destructive",
-        title: "Playback Error",
-        description: "Could not play tones. Please ensure your browser supports Web Audio.",
+        title: "Ошибка воспроизведения",
+        description: "Не удалось воспроизвести тоны. Убедитесь, что ваш браузер поддерживает Web Audio.",
       });
     }
     setIsPlaying(false);
@@ -64,8 +64,8 @@ export function EncoderTab() {
   return (
     <Card className="border-0 shadow-none">
       <CardHeader>
-        <CardTitle>Text to DTMF Encoder</CardTitle>
-        <CardDescription>Convert your text message into a sequence of playable DTMF tones.</CardDescription>
+        <CardTitle>Кодировщик текста в DTMF</CardTitle>
+        <CardDescription>Преобразуйте ваше текстовое сообщение в последовательность воспроизводимых тонов DTMF.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Form {...form}>
@@ -75,9 +75,9 @@ export function EncoderTab() {
               name="text"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Your Message</FormLabel>
+                  <FormLabel>Ваше сообщение</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Enter your secret message..." {...field} />
+                    <Textarea placeholder="Введите ваше секретное сообщение..." {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -85,25 +85,25 @@ export function EncoderTab() {
             />
             <Button type="submit" disabled={isLoading} className="w-full">
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Encode Message
+              Закодировать сообщение
             </Button>
           </form>
         </Form>
         {dtmfSequence && (
           <Card className="bg-muted/50">
             <CardHeader>
-              <CardTitle className="text-lg">Encoded Sequence</CardTitle>
+              <CardTitle className="text-lg">Закодированная последовательность</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="font-mono text-sm break-all bg-background p-3 rounded-md">{dtmfSequence}</p>
               <Button onClick={handlePlay} disabled={isPlaying} className="w-full" variant="secondary">
                 {isPlaying ? (
                   <>
-                    <Volume2 className="mr-2 h-4 w-4 animate-pulse" /> Playing...
+                    <Volume2 className="mr-2 h-4 w-4 animate-pulse" /> Воспроизведение...
                   </>
                 ) : (
                   <>
-                    <PlayCircle className="mr-2 h-4 w-4" /> Play Tones
+                    <PlayCircle className="mr-2 h-4 w-4" /> Воспроизвести тоны
                   </>
                 )}
               </Button>

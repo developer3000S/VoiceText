@@ -34,15 +34,15 @@ export const useRecorder = () => {
                 console.error("Error accessing microphone:", err);
                 toast({
                   variant: "destructive",
-                  title: "Microphone Error",
-                  description: "Could not access microphone. Please check your browser permissions.",
+                  title: "Ошибка микрофона",
+                  description: "Не удалось получить доступ к микрофону. Проверьте разрешения в браузере.",
                 })
             }
         } else {
            toast({
               variant: "destructive",
-              title: "Unsupported Browser",
-              description: "Your browser does not support audio recording.",
+              title: "Браузер не поддерживается",
+              description: "Ваш браузер не поддерживает запись аудио.",
             })
         }
     }, [toast]);

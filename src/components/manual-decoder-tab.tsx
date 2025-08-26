@@ -19,13 +19,13 @@ function blobToDataURL(blob: Blob): Promise<string> {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = () => reject(reader.error);
-    reader.onabort = () => reject(new Error("Read aborted"));
+    reader.onabort = () => reject(new Error("Чтение прервано"));
     reader.readAsDataURL(blob);
   });
 }
 
 const FormSchema = z.object({
-  sequence: z.string().min(1, "Sequence cannot be empty.").regex(/^[0-9#*]+(,\s*[0-9#*]+)*$/, 'Invalid DTMF sequence format. Use numbers, *, # separated by commas.'),
+  sequence: z.string().min(1, "Последовательность не может быть пустой.").regex(/^[0-9#*]+(,\s*[0-9#*]+)*$/, 'Неверный формат последовательности DTMF. Используйте цифры, *, #, разделенные запятыми.'),
 });
 
 export function ManualDecoderTab() {
@@ -52,19 +52,19 @@ export function ManualDecoderTab() {
       } else {
         toast({
           variant: 'destructive',
-          title: 'Decoding Error',
+          title: 'Ошибка декодирования',
           description: result.error,
         });
-        setDecodedText('Failed to decode sequence.');
+        setDecodedText('Не удалось декодировать последовательность.');
       }
     } catch (error) {
       console.error(error);
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Could not process sequence.',
+        title: 'Ошибка',
+        description: 'Не удалось обработать последовательность.',
       });
-      setDecodedText('Error processing sequence.');
+      setDecodedText('Ошибка обработки последовательности.');
     }
     setIsLoading(false);
   }
@@ -72,8 +72,8 @@ export function ManualDecoderTab() {
   return (
     <Card className="border-0 shadow-none">
       <CardHeader>
-        <CardTitle>Manual DTMF Decoder</CardTitle>
-        <CardDescription>Enter a DTMF sequence manually to decode it into text. Useful for debugging.</CardDescription>
+        <CardTitle>Ручной декодер DTMF</CardTitle>
+        <CardDescription>Введите последовательность DTMF вручную, чтобы декодировать ее в текст. Полезно для отладки.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Form {...form}>
@@ -83,9 +83,9 @@ export function ManualDecoderTab() {
               name="sequence"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>DTMF Sequence</FormLabel>
+                  <FormLabel>Последовательность DTMF</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., 1,2,3,#,*,0" {...field} />
+                    <Input placeholder="например, 1,2,3,#,*,0" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -93,14 +93,14 @@ export function ManualDecoderTab() {
             />
             <Button type="submit" disabled={isLoading} className="w-full">
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              <Wand2 className="mr-2 h-4 w-4" /> Decode Sequence
+              <Wand2 className="mr-2 h-4 w-4" /> Декодировать последовательность
             </Button>
           </form>
         </Form>
         {(isLoading || decodedText) && (
           <Card className="bg-muted/50 mt-4">
             <CardHeader>
-              <CardTitle className="text-lg">Decoded Message</CardTitle>
+              <CardTitle className="text-lg">Декодированное сообщение</CardTitle>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -110,7 +110,7 @@ export function ManualDecoderTab() {
               ) : (
                  <div className="flex items-start space-x-3 bg-background p-4 rounded-md">
                     <FileText className="h-5 w-5 mt-1 text-primary"/>
-                    <p className="font-mono text-left flex-1 break-words">{decodedText || "No text decoded."}</p>
+                    <p className="font-mono text-left flex-1 break-words">{decodedText || "Текст не декодирован."}</p>
                  </div>
               )}
             </CardContent>

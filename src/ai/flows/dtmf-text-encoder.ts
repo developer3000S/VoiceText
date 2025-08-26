@@ -1,23 +1,23 @@
 'use server';
 
 /**
- * @fileOverview A flow to encode text messages into DTMF tones for transmission over a phone call.
+ * @fileOverview Поток для кодирования текстовых сообщений в тоны DTMF для передачи во время телефонного звонка.
  *
- * - dtmfTextEncoder - A function that handles the text to DTMF encoding process.
- * - DtmfTextEncoderInput - The input type for the dtmfTextEncoder function.
- * - DtmfTextEncoderOutput - The return type for the dtmfTextEncoder function.
+ * - dtmfTextEncoder - Функция, которая обрабатывает процесс кодирования текста в DTMF.
+ * - DtmfTextEncoderInput - Тип входных данных для функции dtmfTextEncoder.
+ * - DtmfTextEncoderOutput - Тип возвращаемого значения для функции dtmfTextEncoder.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const DtmfTextEncoderInputSchema = z.object({
-  text: z.string().describe('The text message to encode into DTMF tones.'),
+  text: z.string().describe('Текстовое сообщение для кодирования в тоны DTMF.'),
 });
 export type DtmfTextEncoderInput = z.infer<typeof DtmfTextEncoderInputSchema>;
 
 const DtmfTextEncoderOutputSchema = z.object({
-  dtmfSequence: z.string().describe('The DTMF sequence representing the encoded text message.'),
+  dtmfSequence: z.string().describe('Последовательность DTMF, представляющая закодированное текстовое сообщение.'),
 });
 export type DtmfTextEncoderOutput = z.infer<typeof DtmfTextEncoderOutputSchema>;
 
@@ -29,17 +29,17 @@ const prompt = ai.definePrompt({
   name: 'dtmfTextEncoderPrompt',
   input: {schema: DtmfTextEncoderInputSchema},
   output: {schema: DtmfTextEncoderOutputSchema},
-  prompt: `You are a DTMF encoder. Your task is to convert the given text message into a sequence of DTMF tones.
+  prompt: `Вы - кодировщик DTMF. Ваша задача - преобразовать данное текстовое сообщение в последовательность тонов DTMF.
 
-  The DTMF keypad has the following layout:
+  Клавиатура DTMF имеет следующую раскладку:
   1   2   3
   4   5   6
   7   8   9
   *   0   #
 
-  Each character should be represented by the corresponding DTMF tone. If a character is not present on the keypad, use the "#" key to represent it. Separate each DTMF tone with a comma.
+  Каждый символ должен быть представлен соответствующим тоном DTMF. Если символ отсутствует на клавиатуре, используйте клавишу "#" для его представления. Разделяйте каждый тон DTMF запятой.
 
-  Text message: {{{text}}}
+  Текстовое сообщение: {{{text}}}
   `,
 });
 

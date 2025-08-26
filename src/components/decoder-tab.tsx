@@ -13,7 +13,7 @@ function blobToDataURL(blob: Blob): Promise<string> {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = () => reject(reader.error);
-    reader.onabort = () => reject(new Error("Read aborted"));
+    reader.onabort = () => reject(new Error("Чтение прервано"));
     reader.readAsDataURL(blob);
   });
 }
@@ -35,18 +35,18 @@ export function DecoderTab() {
       } else {
         toast({
           variant: 'destructive',
-          title: 'Decoding Error',
+          title: 'Ошибка декодирования',
           description: result.error,
         });
-        setDecodedText('Failed to decode.');
+        setDecodedText('Не удалось декодировать.');
       }
     } catch (error) {
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Could not process audio file.',
+        title: 'Ошибка',
+        description: 'Не удалось обработать аудиофайл.',
       });
-      setDecodedText('Error processing audio.');
+      setDecodedText('Ошибка обработки аудио.');
     }
     setIsLoading(false);
   }, [toast]);
@@ -60,25 +60,25 @@ export function DecoderTab() {
   return (
     <Card className="border-0 shadow-none">
       <CardHeader>
-        <CardTitle>DTMF to Text Decoder</CardTitle>
-        <CardDescription>Record DTMF tones from your microphone and decode them into text.</CardDescription>
+        <CardTitle>Декодер DTMF в текст</CardTitle>
+        <CardDescription>Запишите DTMF-тоны с микрофона и декодируйте их в текст.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-center">
         <Button onClick={isRecording ? stopRecording : startRecording} className="w-full" disabled={isLoading}>
           {isRecording ? (
             <>
-              <Square className="mr-2 h-4 w-4 animate-pulse fill-current" /> Stop Recording
+              <Square className="mr-2 h-4 w-4 animate-pulse fill-current" /> Остановить запись
             </>
           ) : (
             <>
-              <Mic className="mr-2 h-4 w-4" /> Start Recording
+              <Mic className="mr-2 h-4 w-4" /> Начать запись
             </>
           )}
         </Button>
         {(isLoading || decodedText) && (
           <Card className="bg-muted/50 mt-4">
             <CardHeader>
-              <CardTitle className="text-lg">Decoded Message</CardTitle>
+              <CardTitle className="text-lg">Декодированное сообщение</CardTitle>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -88,7 +88,7 @@ export function DecoderTab() {
               ) : (
                  <div className="flex items-start space-x-3 bg-background p-4 rounded-md">
                     <FileText className="h-5 w-5 mt-1 text-primary"/>
-                    <p className="font-mono text-left flex-1 break-words">{decodedText || "No text decoded."}</p>
+                    <p className="font-mono text-left flex-1 break-words">{decodedText || "Текст не декодирован."}</p>
                  </div>
               )}
             </CardContent>

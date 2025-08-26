@@ -9,7 +9,7 @@ export async function encodeTextAction(input: DtmfTextEncoderInput) {
     return { success: true, data: result };
   } catch (error) {
     console.error("Error encoding text:", error);
-    return { success: false, error: "Failed to encode text." };
+    return { success: false, error: "Не удалось закодировать текст." };
   }
 }
 
@@ -19,9 +19,9 @@ export async function decodeAudioAction(input: DecodeDtmfAudioInput) {
     if (result.success) {
       return { success: true, data: result };
     }
-    return { success: false, error: "Failed to decode audio." };
+    return { success: false, error: "Не удалось декодировать аудио." };
   } catch (error) {
     console.error("Error decoding audio:", error);
-    return { success: false, error: "An unexpected error occurred during decoding." };
+    return { success: false, error: "Произошла непредвиденная ошибка при декодировании." };
   }
 }

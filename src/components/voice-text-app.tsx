@@ -13,18 +13,18 @@ export function VoiceTextApp() {
       <CardHeader className="text-center">
         <div className="flex items-center justify-center gap-3">
           <AudioWaveform className="h-8 w-8 text-primary" />
-          <CardTitle className="text-3xl font-bold">VoiceText</CardTitle>
+          <CardTitle className="text-3xl font-bold">Голосовой Текст</CardTitle>
         </div>
         <CardDescription>
-          Transmit text over voice calls using DTMF tones.
+          Передавайте текст во время голосовых вызовов с помощью тонов DTMF.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="encoder" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="encoder">Encoder</TabsTrigger>
-            <TabsTrigger value="decoder">Decoder</TabsTrigger>
-            <TabsTrigger value="manual">Manual</TabsTrigger>
+            <TabsTrigger value="encoder">Кодировщик</TabsTrigger>
+            <TabsTrigger value="decoder">Декодер</TabsTrigger>
+            <TabsTrigger value="manual">Вручную</TabsTrigger>
           </TabsList>
           <TabsContent value="encoder">
             <EncoderTab />
