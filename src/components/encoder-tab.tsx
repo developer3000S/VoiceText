@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlayCircle, Volume2, Download, CircleDashed, PlusCircle } from 'lucide-react';
 import { playDtmfSequence, renderDtmfSequenceToAudioBuffer, textToDtmfSequence } from '@/lib/dtmf';
 import { bufferToWave } from '@/lib/wav';
+import * as Tone from 'tone';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,20 +34,35 @@ export function EncoderTab() {
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
   const { addLog } = useLog();
+  const isAudioContextStarted = useRef(false);
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
     defaultValues: { text: '' },
   });
 
+  // Function to initialize the audio context safely.
+  const startAudioContext = async () => {
+    if (!isAudioContextStarted.current) {
+        try {
+            await Tone.start();
+            isAudioContextStarted.current = true;
+            addLog('Аудиоконтекст успешно инициализирован.');
+        } catch (error) {
+            addLog('Ошибка инициализации аудиоконтекста. Воспроизведение может не работать.', 'error');
+        }
+    }
+  };
+
+
   async function onSubmit(data: z.infer<typeof FormSchema>) {
+    await startAudioContext(); // Ensure context is started before encoding
     setIsLoading(true);
     setDtmfSequence(null);
     
     try {
       const sequence = textToDtmfSequence(data.text, addLog);
       setDtmfSequence(sequence);
-      // Log is now handled inside textToDtmfSequence
     } catch (error) {
        const errorMessage = error instanceof Error ? error.message : String(error);
        toast({
@@ -62,6 +78,14 @@ export function EncoderTab() {
 
   async function handlePlay() {
     if (!dtmfSequence) return;
+    
+    // Double-check audio context
+    await startAudioContext();
+    if (!isAudioContextStarted.current) {
+      toast({ variant: 'destructive', title: 'Ошибка звука', description: 'Не удалось активировать аудио. Попробуйте перезагрузить страницу.' });
+      return;
+    }
+
     setIsPlaying(true);
     addLog('Воспроизведение DTMF последовательности...');
     try {
@@ -127,7 +151,7 @@ export function EncoderTab() {
                     <FormLabel>Ваше сообщение</FormLabel>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={startAudioContext}>
                           <PlusCircle className="mr-2 h-4 w-4" />
                           Шаблоны
                         </Button>
@@ -148,7 +172,7 @@ export function EncoderTab() {
                     </DropdownMenu>
                   </div>
                   <FormControl>
-                    <Textarea placeholder="Введите ваше секретное сообщение..." {...field} />
+                    <Textarea placeholder="Введите ваше секретное сообщение..." {...field} onClick={startAudioContext} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

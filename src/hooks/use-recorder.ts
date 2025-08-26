@@ -4,6 +4,27 @@ import { useState, useRef, useCallback } from 'react';
 import { useToast } from './use-toast';
 import { Capacitor } from '@capacitor/core';
 
+// This function provides a reliable way to request microphone permission on native platforms.
+async function requestMicrophonePermission(): Promise<boolean> {
+    if (!Capacitor.isNativePlatform()) {
+      // On web, the browser will handle the permission prompt automatically with getUserMedia.
+      return true;
+    }
+    
+    // For native platforms, we directly ask the user for permission.
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // If we get here, permission was granted. We must stop the track immediately
+        // because we are not actually recording yet, just checking permission.
+        stream.getTracks().forEach(track => track.stop());
+        return true;
+    } catch (error) {
+        console.error("Native permission request failed:", error);
+        // The user likely denied the permission.
+        return false;
+    }
+}
+
 
 export const useRecorder = () => {
     const { toast } = useToast();
@@ -11,7 +32,7 @@ export const useRecorder = () => {
     
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
-    let stopResolver: ((blob: Blob) => void) | null = null;
+    const stopPromiseResolver = useRef<{ resolve: (blob: Blob) => void } | null>(null);
     
     const startRecording = useCallback(async () => {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -24,39 +45,47 @@ export const useRecorder = () => {
         }
 
         try {
-            // This is the key part: we explicitly call getUserMedia to trigger the permission prompt on mobile.
-            // On web, it also asks for permission.
+            // First, ensure we have permission. This is the crucial step.
+            const hasPermission = await requestMicrophonePermission();
+
+            if (!hasPermission) {
+                toast({
+                  variant: "destructive",
+                  title: "Доступ к микрофону запрещен",
+                  description: "Пожалуйста, предоставьте доступ к микрофону в настройках вашего устройства/браузера.",
+                });
+                return;
+            }
+
+            // If permission is granted, get the stream again to start recording.
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-            // If we get the stream, permission was granted.
             mediaRecorderRef.current = new MediaRecorder(stream);
             audioChunksRef.current = [];
 
             mediaRecorderRef.current.ondataavailable = (event) => {
-                audioChunksRef.current.push(event.data);
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
             };
 
             mediaRecorderRef.current.onstop = () => {
                 const blob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
-                // Stop all tracks to turn off the recording indicator.
                 stream.getTracks().forEach(track => track.stop());
-                if (stopResolver) {
-                    stopResolver(blob);
-                    stopResolver = null;
+                if (stopPromiseResolver.current) {
+                    stopPromiseResolver.current.resolve(blob);
+                    stopPromiseResolver.current = null;
                 }
             };
 
             mediaRecorderRef.current.start();
             setIsRecording(true);
+
         } catch (err) {
-            console.error("Error accessing microphone:", err);
-            let description = "Не удалось начать запись. Проверьте разрешения для браузера или приложения.";
-            // This error is specifically for permission denial.
+            console.error("Error during recording setup:", err);
+            let description = "Не удалось начать запись. Проверьте разрешения.";
             if (err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
                 description = "Вы не предоставили доступ к микрофону. Пожалуйста, разрешите доступ в настройках."
-                 if (Capacitor.isNativePlatform()) {
-                    description += " Возможно, потребуется перезапустить приложение после предоставления разрешений в настройках системы.";
-                }
             }
             toast({
               variant: "destructive",
@@ -70,11 +99,10 @@ export const useRecorder = () => {
     const stopRecording = useCallback((): Promise<Blob> => {
         return new Promise((resolve) => {
              if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-                stopResolver = resolve;
+                stopPromiseResolver.current = { resolve };
                 mediaRecorderRef.current.stop();
                 setIsRecording(false);
             } else {
-                // If recording was already stopped or never started, return an empty Blob.
                 resolve(new Blob());
             }
         })
