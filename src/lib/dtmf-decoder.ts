@@ -5,7 +5,7 @@ import { REVERSE_CHAR_MAP } from './dtmf';
 
 const TONE_DURATION_MS = 100;
 const PAUSE_DURATION_MS = 50; 
-const MIN_PAUSE_MS = 30; // Shorter pause for detection robustness
+const MIN_PAUSE_MS = 45; // Shorter pause for detection robustness
 const THRESHOLD = 100; 
 const SAMPLE_RATE = 44100;
 
@@ -85,7 +85,7 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
     let result = '';
     
     const startIdx = sequence.indexOf('*');
-    const endIdx = sequence.indexOf('#');
+    const endIdx = sequence.lastIndexOf('#');
 
     if (startIdx === -1) {
         addLog('Стартовый символ * не найден. Декодирование невозможно.', 'error');
@@ -142,22 +142,39 @@ async function getAudioContext(blob: Blob): Promise<AudioBuffer> {
 
 export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): Promise<string | null> {
     try {
-        const audioBuffer = await getAudioContext(blob);
-        addLog(`Аудиофайл успешно загружен. Длительность: ${audioBuffer.duration.toFixed(2)}с, Частота: ${audioBuffer.sampleRate}Гц`);
+        const originalAudioBuffer = await getAudioContext(blob);
+        addLog(`Аудиофайл успешно загружен. Длительность: ${originalAudioBuffer.duration.toFixed(2)}с, Частота: ${originalAudioBuffer.sampleRate}Гц`);
         
-        let data;
-        if (audioBuffer.sampleRate !== SAMPLE_RATE) {
-            addLog(`Частота дискретизации отличается (${audioBuffer.sampleRate}Hz). Производится передискретизация до ${SAMPLE_RATE}Hz.`, 'warning');
-            const offlineContext = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.duration * SAMPLE_RATE, SAMPLE_RATE);
-            const bufferSource = offlineContext.createBufferSource();
-            bufferSource.buffer = audioBuffer;
-            bufferSource.connect(offlineContext.destination);
-            bufferSource.start();
-            const resampledBuffer = await offlineContext.startRendering();
-            data = resampledBuffer.getChannelData(0);
-        } else {
-            data = audioBuffer.getChannelData(0);
-        }
+        // --- Фильтрация аудио ---
+        addLog('Применение цифровых фильтров для очистки аудио...');
+        const offlineCtx = new OfflineAudioContext(
+            originalAudioBuffer.numberOfChannels,
+            originalAudioBuffer.duration * SAMPLE_RATE, // Рендерим с целевой частотой дискретизации
+            SAMPLE_RATE
+        );
+
+        const source = offlineCtx.createBufferSource();
+        source.buffer = originalAudioBuffer;
+
+        // Фильтр высоких частот (убирает низкочастотный шум и голос)
+        const highPass = offlineCtx.createBiquadFilter();
+        highPass.type = 'highpass';
+        highPass.frequency.value = 650; // Ниже самой низкой частоты DTMF (697 Hz)
+
+        // Фильтр низких частот (убирает высокочастотный шум и гармоники)
+        const lowPass = offlineCtx.createBiquadFilter();
+        lowPass.type = 'lowpass';
+        lowPass.frequency.value = 1700; // Выше самой высокой частоты DTMF (1633 Hz)
+
+        source.connect(highPass);
+        highPass.connect(lowPass);
+        lowPass.connect(offlineCtx.destination);
+        source.start();
+
+        const filteredBuffer = await offlineCtx.startRendering();
+        addLog('Фильтрация завершена.');
+        
+        const data = filteredBuffer.getChannelData(0);
 
         const toneSamples = Math.floor(SAMPLE_RATE * (TONE_DURATION_MS / 1000));
         const pauseSamples = Math.floor(SAMPLE_RATE * (MIN_PAUSE_MS / 1000));
@@ -166,39 +183,39 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
 
         const detectedTones: string[] = [];
         let i = 0;
-        let lastTone = null;
-        let lastToneEndPosition = 0;
+        let lastToneEndPosition = -pauseSamples; // Позволяет обнаружить первый тон
 
-        while (i + toneSamples <= data.length) {
+        while (i <= data.length - toneSamples) {
             const chunk = data.slice(i, i + toneSamples);
             const tone = detectTone(chunk, SAMPLE_RATE);
             
             if (tone) {
-                // Check if it's a new tone
-                if (tone !== lastTone || (i > lastToneEndPosition + pauseSamples)) {
+                // Убедимся, что прошла минимальная пауза с момента последнего тона
+                if (i > lastToneEndPosition + pauseSamples) {
                     addLog(`Обнаружен тон: '${tone}' на ${((i/SAMPLE_RATE)*1000).toFixed(0)}мс`);
                     detectedTones.push(tone);
                     if (tone === '#') {
                         addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
                         return decodeSequence(detectedTones, addLog);
                     }
+                    lastToneEndPosition = i;
+                    i += toneSamples; // Пропускаем весь кусок с тоном
+                } else {
+                     i += 100; // Небольшой шаг, если тон слишком близко
                 }
-                lastTone = tone;
-                lastToneEndPosition = i + toneSamples;
-                i += toneSamples; // Move past the current tone chunk
             } else {
-                lastTone = null;
-                i += Math.floor(pauseSamples / 2); // Move forward by a fraction of a pause
+                i += Math.floor(pauseSamples / 2); // Двигаемся дальше, если тона нет
             }
         }
         
-        if (detectedTones.length === 0) {
-            addLog("DTMF тоны не обнаружены в аудио.", 'warning');
-            return null;
+        if (detectedTones.length > 0 && detectedTones[detectedTones.length - 1] !== '#') {
+            addLog("Стоповый символ '#' не был обнаружен в аудио. Сообщение может быть неполным.", 'warning');
+        } else if (detectedTones.length === 0) {
+             addLog("DTMF тоны не обнаружены в аудио.", 'warning');
         }
 
-        addLog("Стоповый символ '#' не был обнаружен в аудио. Сообщение может быть неполным.", 'warning');
-        return null; // Return null because the message is incomplete
+        const decoded = decodeSequence(detectedTones, addLog);
+        return decoded === '' ? null : decoded;
 
     } catch(error) {
          addLog(`Критическая ошибка при декодировании аудио: ${(error as Error).message}`, 'error');
