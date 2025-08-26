@@ -6,7 +6,6 @@ import { REVERSE_CHAR_MAP } from './dtmf';
 
 const TONE_DURATION_MS = 100;
 const PAUSE_DURATION_MS = 50; 
-const MIN_PAUSE_MS = 30; 
 const THRESHOLD = 100; 
 const SAMPLE_RATE = 44100;
 const DEBOUNCE_MS = 150; // Ignore same tone detection within this time
@@ -83,18 +82,16 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
     return DTMF_MAP[`${detectedLowFreq},${detectedHighFreq}`] || null;
 }
 
-function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): string {
+function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): string | null {
     addLog(`Запуск декодирования последовательности: [${sequence.join(',')}]`);
 
-    // 1. Find the first '*'
     const startIdx = sequence.indexOf('*');
     if (startIdx === -1) {
         addLog('Стартовый символ * не найден. Декодирование невозможно.', 'error');
-        return '';
+        return null;
     }
     addLog(`Стартовый символ * найден на позиции ${startIdx}.`);
 
-    // 2. Get the payload between the first '*' and the last '#'
     let payload = sequence.slice(startIdx + 1);
 
     const endIdx = payload.lastIndexOf('#');
@@ -107,16 +104,14 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
     
     addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
 
-    // 3. Check for invalid characters within the payload
     if (payload.some(tone => tone === '*' || tone === '#')) {
         addLog('Внутри пакета данных обнаружены недопустимые служебные символы (* или #). Декодирование прервано.', 'error');
-        return '';
+        return null;
     }
     
-    // 4. Check for even length
     if (payload.length % 2 !== 0) {
         addLog(`Длина пакета данных нечетная (${payload.length}). Сообщение повреждено. Декодирование прервано.`, 'error');
-        return '';
+        return null;
     }
 
     if (payload.length === 0) {
@@ -124,7 +119,6 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
         return '';
     }
     
-    // 5. Decode pairs
     let result = '';
     for (let i = 0; i < payload.length; i += 2) {
         const codePair = payload[i] + payload[i + 1];
@@ -186,7 +180,6 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
         addLog('Фильтрация завершена.');
         
         const data = filteredBuffer.getChannelData(0);
-
         const toneSamples = Math.floor(SAMPLE_RATE * (TONE_DURATION_MS / 1000));
         const pauseSamples = Math.floor(SAMPLE_RATE * (PAUSE_DURATION_MS / 1000));
         const stepSamples = Math.floor(toneSamples / 2);
@@ -206,7 +199,6 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
                 const currentTime = i / SAMPLE_RATE * 1000;
                 const timeSinceLast = currentTime - lastToneTime;
 
-                // Debounce check: is it a new tone or an echo of the last one?
                 if (currentTone !== lastTone || timeSinceLast > DEBOUNCE_MS) {
                     detectedTones.push(currentTone);
                     addLog(`Обнаружен тон: '${currentTone}' на ${currentTime.toFixed(0)}мс`);
@@ -216,26 +208,18 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
                         addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
                         break; 
                     }
-                    i += toneSamples; // Skip forward past the tone
+                    i += toneSamples;
                 } else {
-                     // It's a bounce/echo, ignore it and just step forward
                     i += stepSamples;
                 }
             } else {
-                // No tone detected
                 lastTone = null;
                 i += stepSamples;
             }
         }
         
-        if (detectedTones.length > 0 && detectedTones[detectedTones.length - 1] !== '#') {
-            addLog("Стоповый символ '#' не был обнаружен в аудио. Сообщение может быть неполным.", 'warning');
-        } else if (detectedTones.length === 0) {
-             addLog("DTMF тоны не обнаружены в аудио.", 'warning');
-        }
-
         const decoded = decodeSequence(detectedTones, addLog);
-        return decoded === '' ? null : decoded;
+        return decoded;
 
     } catch(error) {
          addLog(`Критическая ошибка при декодировании аудио: ${(error as Error).message}`, 'error');
