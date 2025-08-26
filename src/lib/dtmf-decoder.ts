@@ -84,51 +84,48 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
 }
 
 function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): string {
-    let result = '';
-    
+    addLog(`Запуск декодирования последовательности: [${sequence.join(',')}]`);
+
+    // 1. Find the first '*'
     const startIdx = sequence.indexOf('*');
     if (startIdx === -1) {
         addLog('Стартовый символ * не найден. Декодирование невозможно.', 'error');
         return '';
     }
     addLog(`Стартовый символ * найден на позиции ${startIdx}.`);
-    
-    // The actual payload starts after the first '*'
+
+    // 2. Get the payload between the first '*' and the last '#'
     let payload = sequence.slice(startIdx + 1);
 
     const endIdx = payload.lastIndexOf('#');
-    
-    if (endIdx !== -1) {
+    if (endIdx === -1) {
+        addLog('Стоповый символ # не найден. Сообщение может быть неполным.', 'warning');
+    } else {
         addLog(`Стоповый символ # найден. Обрезаем пакет данных.`);
         payload = payload.slice(0, endIdx);
-    } else {
-        addLog('Стоповый символ # не найден. Сообщение может быть неполным.', 'warning');
     }
-
+    
     addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
+
+    // 3. Check for invalid characters within the payload
+    if (payload.some(tone => tone === '*' || tone === '#')) {
+        addLog('Внутри пакета данных обнаружены недопустимые служебные символы (* или #). Декодирование прервано.', 'error');
+        return '';
+    }
+    
+    // 4. Check for even length
+    if (payload.length % 2 !== 0) {
+        addLog(`Длина пакета данных нечетная (${payload.length}). Сообщение повреждено. Декодирование прервано.`, 'error');
+        return '';
+    }
 
     if (payload.length === 0) {
         addLog(`Пакет данных пуст.`, 'warning');
         return '';
     }
-
-    if (payload.some(tone => tone === '*' || tone === '#')) {
-        addLog('Внутри пакета данных обнаружены служебные символы (* или #). Это может указывать на ошибки распознавания.', 'warning');
-        payload = payload.filter(tone => tone !== '*' && tone !== '#');
-        addLog(`Очищенный пакет данных: [${payload.join(',')}]`);
-    }
-
-    if (payload.length % 2 !== 0) {
-        addLog(`Длина пакета данных нечетная (${payload.length}). Последний тон будет проигнорирован.`, 'warning');
-        payload.pop();
-    }
     
-    if (payload.length === 0) {
-        addLog(`Пакет данных пуст после очистки.`, 'warning');
-        return '';
-    }
-
-
+    // 5. Decode pairs
+    let result = '';
     for (let i = 0; i < payload.length; i += 2) {
         const codePair = payload[i] + payload[i + 1];
         const char = REVERSE_CHAR_MAP[codePair];
@@ -198,14 +195,13 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
 
         const detectedTones: string[] = [];
         let lastTone: string | null = null;
-        let lastToneTime = 0;
+        let lastToneTime = -Infinity;
 
         let i = 0;
         while (i + toneSamples <= data.length) {
             const chunk = data.slice(i, i + toneSamples);
             const currentTone = detectTone(chunk, SAMPLE_RATE);
             
-
             if (currentTone) {
                 const currentTime = i / SAMPLE_RATE * 1000;
                 const timeSinceLast = currentTime - lastToneTime;
@@ -220,7 +216,7 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
                         addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
                         break; 
                     }
-                    i += toneSamples + pauseSamples; // Skip forward past the tone and pause
+                    i += toneSamples; // Skip forward past the tone
                 } else {
                      // It's a bounce/echo, ignore it and just step forward
                     i += stepSamples;
@@ -246,5 +242,3 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
          return null;
     }
 }
-
-    
