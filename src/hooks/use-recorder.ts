@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from './use-toast';
 import { Capacitor } from '@capacitor/core';
-// Do not import VoiceRecorder statically, as it causes build issues.
+import { Permissions } from '@capacitor/core';
 
 export const useRecorder = () => {
     const { toast } = useToast();
@@ -13,6 +13,44 @@ export const useRecorder = () => {
     
     // Promise resolvers for when the recording is stopped
     let stopResolver: ((blob: Blob) => void) | null = null;
+    
+    const requestNativePermissions = async (): Promise<boolean> => {
+        try {
+            const result = await Permissions.request({ name: 'microphone' });
+            if (result.state === 'granted') {
+                return true;
+            }
+            if (result.state === 'denied') {
+                toast({
+                    variant: "destructive",
+                    title: "Доступ к микрофону запрещен",
+                    description: "Пожалуйста, предоставьте разрешение в настройках вашего устройства.",
+                });
+            }
+            return false;
+        } catch(e) {
+            // This can happen if the permissions plugin is not implemented on the platform.
+            console.error("Could not request microphone permissions", e);
+            // Fallback to old method for web or if plugin fails
+            return await requestWebPermissions();
+        }
+    };
+    
+    const requestWebPermissions = async (): Promise<boolean> => {
+         try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(track => track.stop());
+            return true;
+        } catch(err) {
+            console.error("Permission denied:", err);
+            toast({
+                variant: "destructive",
+                title: "Доступ к микрофону запрещен",
+                description: "Пожалуйста, предоставьте разрешение на использование микрофона в настройках вашего браузера или устройства.",
+            });
+            return false;
+        }
+    }
     
     const requestPermissions = async (): Promise<boolean> => {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -24,20 +62,10 @@ export const useRecorder = () => {
             return false;
         }
         
-        try {
-            // This single call handles permissions for both web and native (via Capacitor)
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            // We need to immediately stop the stream so the red "recording" icon doesn't stay on
-            stream.getTracks().forEach(track => track.stop());
-            return true;
-        } catch(err) {
-            console.error("Permission denied:", err);
-            toast({
-                variant: "destructive",
-                title: "Доступ к микрофону запрещен",
-                description: "Пожалуйста, предоставьте разрешение на использование микрофона в настройках вашего браузера или устройства.",
-            });
-            return false;
+        if (Capacitor.isNativePlatform()) {
+            return await requestNativePermissions();
+        } else {
+            return await requestWebPermissions();
         }
     }
 
