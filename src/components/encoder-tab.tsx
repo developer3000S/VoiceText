@@ -45,9 +45,9 @@ export function EncoderTab() {
     addLog(`Запуск локального кодирования текста: "${data.text}"`);
     
     try {
-      const sequence = textToDtmfSequence(data.text);
+      const sequence = textToDtmfSequence(data.text, addLog);
       setDtmfSequence(sequence);
-      addLog(`Кодирование успешно. Результат: ${sequence}`);
+      // Log is now handled inside textToDtmfSequence
     } catch (error) {
        const errorMessage = error instanceof Error ? error.message : String(error);
        toast({

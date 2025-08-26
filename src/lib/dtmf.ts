@@ -43,7 +43,7 @@ const CHAR_MAP: { [key: string]: string } = {
   '.': '1', ',': '11', '?': '111', '!': '1111',
 };
 
-export function textToDtmfSequence(text: string): string {
+export function textToDtmfSequence(text: string, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): string {
     let sequence: string[] = [];
     let lastKey = '';
     let isCurrentlyUpperCase = false;
@@ -53,19 +53,24 @@ export function textToDtmfSequence(text: string): string {
         const isLetter = (lowerChar >= 'a' && lowerChar <= 'z') || (lowerChar >= 'а' && lowerChar <= 'я' || lowerChar === 'ё');
         const isUpperCaseForCurrentChar = isLetter && char === char.toUpperCase() && char !== lowerChar;
         
+        addLog(`Символ: '${char}' (нижний регистр: '${lowerChar}')`);
+
         // Handle case switching for Russian letters (stateful)
         if (isLetter && (lowerChar >= 'а' && lowerChar <= 'я')) {
             if (isUpperCaseForCurrentChar && !isCurrentlyUpperCase) {
                 sequence.push('*');
                 isCurrentlyUpperCase = true;
+                addLog(`> Включен ВЕРХНИЙ РЕГИСТР для кириллицы.`);
             } else if (!isUpperCaseForCurrentChar && isCurrentlyUpperCase) {
                 sequence.push('*');
                 isCurrentlyUpperCase = false;
+                 addLog(`> Выключен ВЕРХНИЙ РЕГИСТР для кириллицы.`);
             }
         } else if(isLetter && (lowerChar >= 'a' && lowerChar <= 'z')) {
             // Handle one-time case switching for Latin letters
              if (isUpperCaseForCurrentChar) {
                 sequence.push('*');
+                addLog(`> Добавлен разовый переключатель регистра для латиницы.`);
             }
         }
 
@@ -73,17 +78,23 @@ export function textToDtmfSequence(text: string): string {
         const dtmfChars = CHAR_MAP[lowerChar];
         if (dtmfChars) {
             const currentKey = dtmfChars[0];
+            addLog(`> Найдены DTMF символы: '${dtmfChars}' (клавиша: ${currentKey})`);
             if (currentKey === lastKey) {
                 sequence.push('#'); // Separator for same-key characters
+                addLog(`> Клавиша совпадает с предыдущей. Добавлен разделитель '#'.`);
             }
             sequence.push(...dtmfChars.split(''));
             lastKey = currentKey;
         } else {
              sequence.push('#', '#'); // Represent unknown characters
              lastKey = '';
+             addLog(`> Неизвестный символ '${char}'. Добавлена замена '##'.`, 'warning');
         }
+         addLog(`> Текущая последовательность: ${sequence.join(',')}`);
     }
-    return sequence.join(',');
+    const finalSequence = sequence.join(',');
+    addLog(`Кодирование завершено. Итоговая последовательность: ${finalSequence}`);
+    return finalSequence;
 }
 
 
