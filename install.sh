@@ -1,7 +1,13 @@
 # Теперь, чтобы создать APK, вам нужно будет выполнить следующие шаги уже на вашем компьютере:
 
+# Очистите кэш npm: 
+npm cache clean --force
+# Удалите папку node_modules и переустановите зависимости: 
+rm -rf node_modules && npm install
+
 ## Установите зависимости:
-npm install
+npm install @capacitor/core@latest @capacitor/cli@latest
+npm audit fix --force
 
 ## Соберите веб-приложение:
 npm run build:mobile

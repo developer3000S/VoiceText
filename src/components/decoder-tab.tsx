@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
@@ -8,7 +8,8 @@ import { Loader2, Mic, Square, FileText, Upload } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
 import { decodeDtmfFromAudio } from '@/lib/dtmf-decoder';
-
+import { Capacitor } from '@capacitor/core';
+import { Plugins } from '@capacitor/core';
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
@@ -17,6 +18,27 @@ export function DecoderTab() {
   const { isRecording, startRecording, stopRecording, getAudioBlob } = useRecorder();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addLog } = useLog();
+  const [hasMicrophonePermission, setHasMicrophonePermission] = useState(false);
+  const { Permissions } = Plugins;
+  useEffect(() => {
+    const checkMicrophonePermission = async () => {
+      if (Capacitor.isNativePlatform()) {
+        // Используйте строковый идентификатор разрешения
+        const permissionStatus = await Permissions.check({
+          permissions: ['microphone']
+        });
+  
+        // Обновите проверку состояния разрешения
+        setHasMicrophonePermission(
+          permissionStatus.results[0].state === 'granted'
+        );
+      } else {
+        setHasMicrophonePermission(true);
+      }
+    };
+  
+    checkMicrophonePermission();
+  }, []);
 
   const handleDecode = useCallback(async (blob: Blob, source: string) => {
     setIsLoading(true);
@@ -62,7 +84,15 @@ export function DecoderTab() {
     fileInputRef.current?.click();
   };
   
-  const handleStartRecording = () => {
+  const handleStartRecording = async () => {
+    if (!hasMicrophonePermission) {
+      toast({
+        variant: 'destructive',
+        title: 'Ошибка',
+        description: 'Необходимо разрешение на использование микрофона.',
+      });
+      return;
+    }
     addLog('Запись с микрофона начата...');
     startRecording();
   }
@@ -70,11 +100,25 @@ export function DecoderTab() {
   const handleStopRecording = async () => {
     addLog('Запись с микрофона остановлена.');
     const blob = await stopRecording();
-    if(blob && blob.size > 0) {
+    if (blob && blob.size > 0) {
       handleDecode(blob, 'микрофон');
     } else {
       addLog('Запись пуста, декодирование отменено.', 'warning');
     }
+  }
+
+  if (!hasMicrophonePermission) {
+    return (
+      <Card className="border-0 shadow-none">
+        <CardHeader>
+          <CardTitle>Декодер DTMF в текст</CardTitle>
+          <CardDescription>Для использования декодера необходимо разрешение на использование микрофона.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p>Пожалуйста, предоставьте разрешение на использование микрофона в настройках приложения.</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -130,3 +174,4 @@ export function DecoderTab() {
     </Card>
   );
 }
+

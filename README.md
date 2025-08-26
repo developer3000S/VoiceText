@@ -34,6 +34,8 @@
 1.  **Установите зависимости проекта:**
     ```bash
 npm install
+npm install @capacitor/core
+npm audit fix --force
     ```
 
 2.  **Соберите статическую версию веб-приложения:**
