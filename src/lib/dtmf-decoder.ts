@@ -86,22 +86,32 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
     return DTMF_MAP[`${detectedLowFreq},${detectedHighFreq}`] || null;
 }
 
-function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error') => void): string {
+function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): string {
     if (!sequence || sequence.length === 0) {
         return '';
     }
     addLog(`Начало декодирования последовательности: [${sequence.join(', ')}]`);
 
     let result = '';
-    let isUpperCase = false;
+    let isRussianUpperCase = false; // separate state for Russian stateful case
     let i = 0;
 
     while (i < sequence.length) {
         const currentTone = sequence[i];
 
         if (currentTone === '*') {
-            isUpperCase = !isUpperCase;
-            addLog(`Переключение регистра: ${isUpperCase ? 'ВКЛ' : 'ВЫКЛ'}`);
+            // Check the next character to determine context if possible
+            const nextTone = sequence.find((t, idx) => idx > i && t !== '#' && t !== '*');
+            const keyChars = nextTone ? KEY_MAP[nextTone as keyof typeof KEY_MAP] : undefined;
+            const isLatinNext = keyChars?.some(c => c >= 'a' && c <= 'z');
+            
+            // If the next char is not Latin, we assume it's a Russian case switch
+            if (!isLatinNext) {
+                isRussianUpperCase = !isRussianUpperCase;
+                addLog(`Переключение русского регистра: ${isRussianUpperCase ? 'ВКЛ' : 'ВЫКЛ'}`);
+            } else {
+                 addLog(`Обнаружен переключатель регистра для латиницы (одноразовый).`);
+            }
             i++;
             continue;
         }
@@ -114,7 +124,7 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
 
         const keyChars = KEY_MAP[currentTone as keyof typeof KEY_MAP];
         if (!keyChars) {
-            addLog(`Неизвестный тон '${currentTone}', пропускается.`);
+            addLog(`Неизвестный тон '${currentTone}', пропускается.`, 'warning');
             i++;
             continue;
         }
@@ -130,19 +140,15 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
 
         let char = keyChars[(pressCount - 1) % keyChars.length];
         
-        if (isUpperCase && char !== ' ') {
-            const isRussian = (char >= 'а' && char <= 'я');
-            const isLatin = (char >= 'a' && char <= 'z');
-            if (isRussian || isLatin) {
-               char = char.toUpperCase();
-               addLog(`Применение верхнего регистра: '${char}'`);
-               
-               // For Russian, case state is sticky. For Latin, it's one-time.
-               if (isLatin) {
-                   isUpperCase = false;
-                   addLog(`Сброс регистра после латинской буквы.`);
-               }
-            }
+        const isLatin = (char >= 'a' && char <= 'z');
+        const isRussian = (char >= 'а' && char <= 'я');
+
+        // Check for a one-time Latin upper case marker
+        const hasOneTimeUpperCase = i > 0 && sequence[i - pressCount] === '*';
+        
+        if ((isRussian && isRussianUpperCase) || (isLatin && hasOneTimeUpperCase)) {
+             char = char.toUpperCase();
+             addLog(`Применение верхнего регистра: '${char}'`);
         }
         
         result += char;
@@ -160,7 +166,7 @@ async function getAudioContext(blob: Blob): Promise<AudioBuffer> {
      return audioContext.decodeAudioData(arrayBuffer);
 }
 
-export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error') => void): Promise<string | null> {
+export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): Promise<string | null> {
     const audioBuffer = await getAudioContext(blob);
     addLog(`Аудиофайл успешно загружен. Длительность: ${audioBuffer.duration.toFixed(2)}с, Частота: ${audioBuffer.sampleRate}Гц`);
     const data = audioBuffer.getChannelData(0);

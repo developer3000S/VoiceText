@@ -51,19 +51,24 @@ export function textToDtmfSequence(text: string): string {
     for (const char of text) {
         const lowerChar = char.toLowerCase();
         const isLetter = (lowerChar >= 'a' && lowerChar <= 'z') || (lowerChar >= 'а' && lowerChar <= 'я' || lowerChar === 'ё');
-        const isUpperCase = isLetter && char === char.toUpperCase() && char !== lowerChar;
+        const isUpperCaseForCurrentChar = isLetter && char === char.toUpperCase() && char !== lowerChar;
         
-        if (isUpperCase && !isCurrentlyUpperCase) {
-            sequence.push('*');
-            isCurrentlyUpperCase = true;
-        } else if (!isUpperCase && isCurrentlyUpperCase && isLetter) {
-            // No need to toggle off for Russian, it's stateful.
-            // For latin, it's a one-time thing.
-            const isLatin = (lowerChar >= 'a' && lowerChar <= 'z');
-            if (isLatin) {
-              isCurrentlyUpperCase = false;
+        // Handle case switching for Russian letters (stateful)
+        if (isLetter && (lowerChar >= 'а' && lowerChar <= 'я')) {
+            if (isUpperCaseForCurrentChar && !isCurrentlyUpperCase) {
+                sequence.push('*');
+                isCurrentlyUpperCase = true;
+            } else if (!isUpperCaseForCurrentChar && isCurrentlyUpperCase) {
+                sequence.push('*');
+                isCurrentlyUpperCase = false;
+            }
+        } else if(isLetter && (lowerChar >= 'a' && lowerChar <= 'z')) {
+            // Handle one-time case switching for Latin letters
+             if (isUpperCaseForCurrentChar) {
+                sequence.push('*');
             }
         }
+
 
         const dtmfChars = CHAR_MAP[lowerChar];
         if (dtmfChars) {
