@@ -24,11 +24,11 @@ export function DecoderTab() {
     addLog(`Запуск локального декодирования аудио из источника: ${source}`);
     try {
       const text = await decodeDtmfFromAudio(blob, addLog);
-      if (text) {
+      if (text !== null) {
         setDecodedText(text);
         addLog(`Декодирование успешно. Результат: "${text}"`);
       } else {
-        const errorMsg = 'Не удалось распознать DTMF тоны в аудио.';
+        const errorMsg = 'Не удалось распознать DTMF тоны в аудио или сообщение неполное (отсутствует стоп-символ #).';
         toast({
           variant: 'destructive',
           title: 'Ошибка декодирования',

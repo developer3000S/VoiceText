@@ -21,7 +21,7 @@ import {
 import { useLog } from '@/context/log-context';
 
 const FormSchema = z.object({
-  text: z.string().min(1, "Сообщение не может быть пустым.").max(100, "Сообщение слишком длинное."),
+  text: z.string().min(1, "Сообщение не может быть пустым.").max(100, "Сообще-ние слишком длинное."),
 });
 
 const templates = ["Привет!", "Пока!", "Как дела?"];
@@ -42,7 +42,6 @@ export function EncoderTab() {
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     setIsLoading(true);
     setDtmfSequence(null);
-    addLog(`Запуск локального кодирования текста: "${data.text}"`);
     
     try {
       const sequence = textToDtmfSequence(data.text, addLog);

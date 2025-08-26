@@ -43,11 +43,11 @@ export function ManualDecoderTab() {
       addLog('Аудио сгенерировано, запуск локального декодирования...');
       const text = await decodeDtmfFromAudio(wavBlob, addLog);
      
-      if (text) {
+       if (text !== null) {
         setDecodedText(text);
         addLog(`Ручное декодирование успешно. Результат: "${text}"`);
       } else {
-        const errorMsg = 'Не удалось распознать DTMF тоны в аудио.';
+        const errorMsg = 'Не удалось распознать DTMF тоны в аудио или сообщение неполное (отсутствует стоп-символ #).';
         toast({
           variant: 'destructive',
           title: 'Ошибка декодирования',
@@ -86,7 +86,7 @@ export function ManualDecoderTab() {
                 <FormItem>
                   <FormLabel>Последовательность DTMF</FormLabel>
                   <FormControl>
-                    <Input placeholder="например, *7,7,4,3,3,6,6,6,6,1,1,1,1" {...field} />
+                    <Input placeholder="например, *,1,6,3,2,6,4,3,5,1,9,# " {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

@@ -1,12 +1,20 @@
 // Implements the Goertzel algorithm for DTMF tone detection.
 // This is a local, offline alternative to AI-based decoding.
 
-import { DTMF_FREQUENCIES, CHAR_MAP } from './dtmf';
+import { REVERSE_CHAR_MAP } from './dtmf';
 
-const TONE_DURATION_MS = 100; // Corrected: Match encoder's 0.1s = 100ms
-const PAUSE_DURATION_MS = 50;
-const THRESHOLD = 100; // Power threshold for detecting a tone
-const SAMPLE_RATE = 44100; // Standard sample rate
+const TONE_DURATION_MS = 100;
+const PAUSE_DURATION_MS = 50; 
+const MIN_PAUSE_MS = 30; // Shorter pause for detection robustness
+const THRESHOLD = 100; 
+const SAMPLE_RATE = 44100;
+
+const DTMF_FREQUENCIES: { [key: string]: [number, number] } = {
+  '1': [697, 1209], '2': [697, 1336], '3': [697, 1477], 'A': [697, 1633],
+  '4': [770, 1209], '5': [770, 1336], '6': [770, 1477], 'B': [770, 1633],
+  '7': [852, 1209], '8': [852, 1336], '9': [852, 1477], 'C': [852, 1633],
+  '*': [941, 1209], '0': [941, 1336], '#': [941, 1477], 'D': [941, 1633],
+};
 
 const DTMF_MAP: { [key: string]: string } = {
     "697,1209": "1", "697,1336": "2", "697,1477": "3",
@@ -14,12 +22,6 @@ const DTMF_MAP: { [key: string]: string } = {
     "852,1209": "7", "852,1336": "8", "852,1477": "9",
     "941,1209": "*", "941,1336": "0", "941,1477": "#",
 };
-
-// Create a reverse map for decoding
-const REVERSE_CHAR_MAP: { [key: string]: string } = Object.entries(CHAR_MAP).reduce((acc, [key, value]) => {
-    acc[value] = key;
-    return acc;
-}, {} as { [key: string]: string });
 
 
 class Goertzel {
@@ -80,19 +82,38 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
 }
 
 function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): string {
-    if (!sequence || sequence.length === 0) {
-        addLog('Последовательность пуста, декодирование невозможно.', 'warning');
+    let result = '';
+    
+    const startIdx = sequence.indexOf('*');
+    const endIdx = sequence.indexOf('#');
+
+    if (startIdx === -1) {
+        addLog('Стартовый символ * не найден. Декодирование невозможно.', 'error');
         return '';
     }
-     if (sequence.length % 2 !== 0) {
-        addLog(`Обнаружена последовательность нечетной длины (${sequence.length}). Последний тон будет проигнорирован.`, 'warning');
-        sequence.pop();
+     if (endIdx === -1) {
+        addLog('Стоповый символ # не найден. Сообщение может быть неполным.', 'warning');
+        return '';
     }
-    addLog(`Начало декодирования последовательности: [${sequence.join(', ')}]`);
+    if (endIdx < startIdx) {
+        addLog('Стоповый символ # найден перед стартовым символом *. Сообщение некорректно.', 'error');
+        return '';
+    }
 
-    let result = '';
-    for (let i = 0; i < sequence.length; i += 2) {
-        const codePair = sequence[i] + sequence[i + 1];
+    const payload = sequence.slice(startIdx + 1, endIdx);
+    addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
+
+    if (payload.length % 2 !== 0) {
+        addLog(`Длина пакета данных нечетная (${payload.length}). Последний тон будет проигнорирован.`, 'warning');
+        payload.pop();
+    }
+    if (payload.length === 0) {
+        addLog(`Пакет данных пуст.`, 'warning');
+        return '';
+    }
+
+    for (let i = 0; i < payload.length; i += 2) {
+        const codePair = payload[i] + payload[i + 1];
         const char = REVERSE_CHAR_MAP[codePair];
         if (char) {
             result += char;
@@ -138,35 +159,36 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
             data = audioBuffer.getChannelData(0);
         }
 
-        const chunkSize = Math.floor(SAMPLE_RATE * (TONE_DURATION_MS / 1000));
-        const stepSize = Math.floor(SAMPLE_RATE * ((TONE_DURATION_MS + PAUSE_DURATION_MS) / 1000));
+        const toneSamples = Math.floor(SAMPLE_RATE * (TONE_DURATION_MS / 1000));
+        const pauseSamples = Math.floor(SAMPLE_RATE * (MIN_PAUSE_MS / 1000));
         
-        addLog(`Анализ аудио... Размер блока: ${chunkSize} семплов, Шаг: ${stepSize} семплов`);
+        addLog(`Анализ аудио... Длительность тона: ${toneSamples} семплов, Минимальная пауза: ${pauseSamples} семплов`);
 
         const detectedTones: string[] = [];
         let i = 0;
-        let lastToneTime = -Infinity;
+        let lastTone = null;
+        let lastToneEndPosition = 0;
 
-        while (i + chunkSize <= data.length) {
-            const chunk = data.slice(i, i + chunkSize);
+        while (i + toneSamples <= data.length) {
+            const chunk = data.slice(i, i + toneSamples);
             const tone = detectTone(chunk, SAMPLE_RATE);
             
             if (tone) {
-                const currentTime = (i / SAMPLE_RATE) * 1000;
-                 // Ensure we don't detect the same tone again within its duration
-                if (currentTime > lastToneTime + TONE_DURATION_MS) {
-                    addLog(`Обнаружен тон: '${tone}' на ${currentTime.toFixed(0)}мс`);
+                // Check if it's a new tone
+                if (tone !== lastTone || (i > lastToneEndPosition + pauseSamples)) {
+                    addLog(`Обнаружен тон: '${tone}' на ${((i/SAMPLE_RATE)*1000).toFixed(0)}мс`);
                     detectedTones.push(tone);
-                    lastToneTime = currentTime;
-                    // Skip past the detected tone and the following pause
-                    i += stepSize;
-                } else {
-                     // Still inside the previous tone's duration, just advance a bit
-                    i += Math.floor(chunkSize / 8);
+                    if (tone === '#') {
+                        addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
+                        return decodeSequence(detectedTones, addLog);
+                    }
                 }
+                lastTone = tone;
+                lastToneEndPosition = i + toneSamples;
+                i += toneSamples; // Move past the current tone chunk
             } else {
-                // If no tone, advance by a smaller amount to not miss the start of a tone
-                i += Math.floor(chunkSize / 4);
+                lastTone = null;
+                i += Math.floor(pauseSamples / 2); // Move forward by a fraction of a pause
             }
         }
         
@@ -175,7 +197,9 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
             return null;
         }
 
-        return decodeSequence(detectedTones, addLog);
+        addLog("Стоповый символ '#' не был обнаружен в аудио. Сообщение может быть неполным.", 'warning');
+        return null; // Return null because the message is incomplete
+
     } catch(error) {
          addLog(`Критическая ошибка при декодировании аудио: ${(error as Error).message}`, 'error');
          return null;
