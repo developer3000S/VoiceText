@@ -5,7 +5,6 @@ import { DTMF_FREQUENCIES } from './dtmf';
 
 const TONE_DURATION_MS = 65;
 const PAUSE_DURATION_MS = 50;
-const MIN_CHUNK_DURATION_MS = TONE_DURATION_MS + PAUSE_DURATION_MS;
 const THRESHOLD = 100; // Power threshold for detecting a tone
 const SAMPLE_RATE = 44100; // Standard sample rate
 
@@ -93,33 +92,39 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
     addLog(`Начало декодирования последовательности: [${sequence.join(', ')}]`);
 
     let result = '';
-    let isRussianUpperCase = false; // separate state for Russian stateful case
+    let isRussianUpperCase = false;
     let i = 0;
 
     while (i < sequence.length) {
         const currentTone = sequence[i];
 
-        if (currentTone === '*') {
-            // Check the next character to determine context if possible
-            const nextTone = sequence.find((t, idx) => idx > i && t !== '#' && t !== '*');
-            const keyChars = nextTone ? KEY_MAP[nextTone as keyof typeof KEY_MAP] : undefined;
-            const isLatinNext = keyChars?.some(c => c >= 'a' && c <= 'z');
-            
-            // If the next char is not Latin, we assume it's a Russian case switch
-            if (!isLatinNext) {
-                isRussianUpperCase = !isRussianUpperCase;
-                addLog(`Переключение русского регистра: ${isRussianUpperCase ? 'ВКЛ' : 'ВЫКЛ'}`);
-            } else {
-                 addLog(`Обнаружен переключатель регистра для латиницы (одноразовый).`);
-            }
-            i++;
-            continue;
-        }
-        
         if (currentTone === '#') {
             addLog(`Обнаружен разделитель, сброс счетчика нажатий.`);
             i++;
-            continue; // Separator, just move to the next tone
+            continue;
+        }
+
+        if (currentTone === '*') {
+            const nextKeyIndex = sequence.findIndex((t, idx) => idx > i && t !== '*' && t !== '#');
+            if (nextKeyIndex !== -1) {
+                const nextKey = sequence[nextKeyIndex];
+                const keyChars = KEY_MAP[nextKey as keyof typeof KEY_MAP];
+                const isNextCharLatin = keyChars?.some(c => c >= 'a' && c <= 'z');
+                
+                if (isNextCharLatin) {
+                    addLog(`Обнаружен переключатель регистра для латиницы (одноразовый).`);
+                    // This is a one-time upper case for a Latin char, handled below.
+                } else {
+                     isRussianUpperCase = !isRussianUpperCase;
+                     addLog(`Переключение русского регистра: ${isRussianUpperCase ? 'ВКЛ' : 'ВЫКЛ'}`);
+                }
+
+            } else {
+                 isRussianUpperCase = !isRussianUpperCase;
+                 addLog(`Переключение русского регистра: ${isRussianUpperCase ? 'ВКЛ' : 'ВЫКЛ'}`);
+            }
+            i++;
+            continue;
         }
 
         const keyChars = KEY_MAP[currentTone as keyof typeof KEY_MAP];
@@ -129,7 +134,6 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
             continue;
         }
         
-        // Count consecutive presses of the same key
         let pressCount = 1;
         while (i + 1 < sequence.length && sequence[i + 1] === currentTone) {
             pressCount++;
@@ -143,10 +147,24 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
         const isLatin = (char >= 'a' && char <= 'z');
         const isRussian = (char >= 'а' && char <= 'я');
 
-        // Check for a one-time Latin upper case marker
-        const hasOneTimeUpperCase = i > 0 && sequence[i - pressCount] === '*';
-        
-        if ((isRussian && isRussianUpperCase) || (isLatin && hasOneTimeUpperCase)) {
+        // Find the preceding '*' for one-time uppercase, ignoring separators '#'
+        let isOneTimeUpperCase = false;
+        let temp_i = i - pressCount;
+        while(temp_i >= 0){
+            if(sequence[temp_i] === '#'){
+                temp_i--;
+                continue;
+            }
+            if(sequence[temp_i] === '*'){
+                 const nextKeyIndex = sequence.findIndex((t, idx) => idx > temp_i && t !== '*' && t !== '#');
+                 if(nextKeyIndex === (i-pressCount+1)){
+                    isOneTimeUpperCase = true;
+                 }
+            }
+            break;
+        }
+
+        if ((isRussian && isRussianUpperCase) || (isLatin && isOneTimeUpperCase)) {
              char = char.toUpperCase();
              addLog(`Применение верхнего регистра: '${char}'`);
         }
@@ -155,7 +173,8 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
         addLog(`Добавлен символ: '${char}'. Текущий результат: "${result}"`);
         i++;
     }
-
+    
+    addLog(`Декодирование завершено. Итоговый результат: "${result}"`);
     return result;
 }
 
@@ -163,47 +182,70 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
 async function getAudioContext(blob: Blob): Promise<AudioBuffer> {
      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: SAMPLE_RATE });
      const arrayBuffer = await blob.arrayBuffer();
-     return audioContext.decodeAudioData(arrayBuffer);
+     try {
+        const buffer = await audioContext.decodeAudioData(arrayBuffer);
+        return buffer;
+     } catch (e) {
+        addLog(`Не удалось декодировать аудиоданные: ${(e as Error).message}`, 'error');
+        throw e;
+     }
 }
 
 export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): Promise<string | null> {
-    const audioBuffer = await getAudioContext(blob);
-    addLog(`Аудиофайл успешно загружен. Длительность: ${audioBuffer.duration.toFixed(2)}с, Частота: ${audioBuffer.sampleRate}Гц`);
-    const data = audioBuffer.getChannelData(0);
-
-    const chunkSize = Math.floor(audioBuffer.sampleRate * (TONE_DURATION_MS / 1000));
-    const stepSize = Math.floor(audioBuffer.sampleRate * (PAUSE_DURATION_MS / 1000));
-    
-    addLog(`Анализ аудио... Размер блока: ${chunkSize} семплов, Шаг: ${stepSize} семплов`);
-
-    const detectedTones: string[] = [];
-    let lastTone: string | null = null;
-    let lastToneTime = -Infinity;
-
-    for (let i = 0; i + chunkSize <= data.length; i += stepSize) {
-        const chunk = data.slice(i, i + chunkSize);
-        const tone = detectTone(chunk, audioBuffer.sampleRate);
+    try {
+        const audioBuffer = await getAudioContext(blob);
+        addLog(`Аудиофайл успешно загружен. Длительность: ${audioBuffer.duration.toFixed(2)}с, Частота: ${audioBuffer.sampleRate}Гц`);
         
-        if(tone) {
-            if (tone !== lastTone) {
-                 const currentTime = (i / audioBuffer.sampleRate) * 1000;
-                 // Debounce to avoid detecting the same tone multiple times
-                 if (currentTime > lastToneTime + TONE_DURATION_MS) {
+        // Resample if necessary
+        let data;
+        if (audioBuffer.sampleRate !== SAMPLE_RATE) {
+            addLog(`Частота дискретизации отличается (${audioBuffer.sampleRate}Hz). Производится передискретизация до ${SAMPLE_RATE}Hz.`, 'warning');
+            const offlineContext = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.duration * SAMPLE_RATE, SAMPLE_RATE);
+            const bufferSource = offlineContext.createBufferSource();
+            bufferSource.buffer = audioBuffer;
+            bufferSource.connect(offlineContext.destination);
+            bufferSource.start();
+            const resampledBuffer = await offlineContext.startRendering();
+            data = resampledBuffer.getChannelData(0);
+        } else {
+            data = audioBuffer.getChannelData(0);
+        }
+
+
+        const chunkSize = Math.floor(SAMPLE_RATE * (TONE_DURATION_MS / 1000));
+        const stepSize = Math.floor(SAMPLE_RATE * (PAUSE_DURATION_MS / 1000));
+        
+        addLog(`Анализ аудио... Размер блока: ${chunkSize} семплов, Шаг: ${stepSize} семплов`);
+
+        const detectedTones: string[] = [];
+        let lastTone: string | null = null;
+        let lastToneTime = -Infinity;
+
+        for (let i = 0; i + chunkSize <= data.length; i += stepSize) {
+            const chunk = data.slice(i, i + chunkSize);
+            const tone = detectTone(chunk, SAMPLE_RATE);
+            
+            if(tone) {
+                const currentTime = (i / SAMPLE_RATE) * 1000;
+                if (tone !== lastTone || (currentTime > lastToneTime + TONE_DURATION_MS * 1.5)) {
                     detectedTones.push(tone);
                     lastToneTime = currentTime;
                     addLog(`Обнаружен тон: '${tone}' на ${currentTime.toFixed(0)}мс`);
                 }
+                lastTone = tone;
+            } else {
+                lastTone = null;
             }
-            lastTone = tone;
-        } else {
-            lastTone = null;
         }
-    }
-    
-    if (detectedTones.length === 0) {
-      addLog("DTMF тоны не обнаружены в аудио.", 'warning');
-      return null;
-    }
+        
+        if (detectedTones.length === 0) {
+        addLog("DTMF тоны не обнаружены в аудио.", 'warning');
+        return null;
+        }
 
-    return decodeSequence(detectedTones, addLog);
+        return decodeSequence(detectedTones, addLog);
+    } catch(error) {
+         addLog(`Критическая ошибка при декодировании аудио: ${(error as Error).message}`, 'error');
+         return null;
+    }
 }
