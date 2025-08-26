@@ -2,78 +2,26 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from './use-toast';
-import { Capacitor } from '@capacitor/core';
-import { Permissions } from '@capacitor/core';
 
 export const useRecorder = () => {
     const { toast } = useToast();
     const [isRecording, setIsRecording] = useState(false);
+    
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
-    
-    // Promise resolvers for when the recording is stopped
     let stopResolver: ((blob: Blob) => void) | null = null;
     
-    const requestNativePermissions = async (): Promise<boolean> => {
-        try {
-            const result = await Permissions.request({ name: 'microphone' });
-            if (result.state === 'granted') {
-                return true;
-            }
-            if (result.state === 'denied') {
-                toast({
-                    variant: "destructive",
-                    title: "Доступ к микрофону запрещен",
-                    description: "Пожалуйста, предоставьте разрешение в настройках вашего устройства.",
-                });
-            }
-            return false;
-        } catch(e) {
-            // This can happen if the permissions plugin is not implemented on the platform.
-            console.error("Could not request microphone permissions", e);
-            // Fallback to old method for web or if plugin fails
-            return await requestWebPermissions();
-        }
-    };
-    
-    const requestWebPermissions = async (): Promise<boolean> => {
-         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            stream.getTracks().forEach(track => track.stop());
-            return true;
-        } catch(err) {
-            console.error("Permission denied:", err);
-            toast({
-                variant: "destructive",
-                title: "Доступ к микрофону запрещен",
-                description: "Пожалуйста, предоставьте разрешение на использование микрофона в настройках вашего браузера или устройства.",
-            });
-            return false;
-        }
-    }
-    
-    const requestPermissions = async (): Promise<boolean> => {
+    const startRecording = useCallback(async () => {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             toast({
               variant: 'destructive',
               title: 'Функция не поддерживается',
               description: 'Ваше устройство или браузер не поддерживают запись аудио.',
             });
-            return false;
+            return;
         }
-        
-        if (Capacitor.isNativePlatform()) {
-            return await requestNativePermissions();
-        } else {
-            return await requestWebPermissions();
-        }
-    }
-
-    const startRecording = useCallback(async () => {
-        const hasPermission = await requestPermissions();
-        if (!hasPermission) return;
-
         try {
+            // Запрашиваем доступ к микрофону. На Android это вызовет системный запрос разрешений.
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaRecorderRef.current = new MediaRecorder(stream);
             audioChunksRef.current = [];
@@ -83,8 +31,9 @@ export const useRecorder = () => {
             };
 
             mediaRecorderRef.current.onstop = () => {
-                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
-                stream.getTracks().forEach(track => track.stop()); // Stop the microphone access
+                const blob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
+                // Останавливаем все треки, чтобы индикатор записи погас
+                stream.getTracks().forEach(track => track.stop());
                 if (stopResolver) {
                     stopResolver(blob);
                     stopResolver = null;
@@ -95,29 +44,34 @@ export const useRecorder = () => {
             setIsRecording(true);
         } catch (err) {
             console.error("Error accessing microphone:", err);
+            let description = "Не удалось начать запись. Проверьте разрешения для браузера или приложения.";
+            if (err instanceof DOMException && err.name === 'NotAllowedError') {
+                description = "Вы не предоставили доступ к микрофону. Пожалуйста, разрешите доступ в настройках."
+            }
             toast({
               variant: "destructive",
               title: "Ошибка микрофона",
-              description: "Не удалось начать запись. Попробуйте перезапустить приложение.",
+              description: description,
             })
         }
     }, [toast]);
-
+    
     const stopRecording = useCallback((): Promise<Blob> => {
-        return new Promise(async (resolve) => {
+        return new Promise((resolve) => {
              if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
                 stopResolver = resolve;
                 mediaRecorderRef.current.stop();
                 setIsRecording(false);
             } else {
-                resolve(new Blob()); // Resolve with empty blob if not recording
+                // Если запись уже была остановлена, возвращаем пустой Blob
+                resolve(new Blob());
             }
         })
     }, []);
     
     const getAudioBlob = useCallback((): Blob | null => {
         if(audioChunksRef.current.length > 0) {
-            return new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
+            return new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
         }
         return null;
     }, [])
