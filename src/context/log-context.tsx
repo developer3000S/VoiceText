@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 type LogType = 'info' | 'error' | 'warning';
 
 interface LogEntry {
-  id: number;
+  id: string;
   timestamp: string;
   message: string;
   type: LogType;
@@ -31,12 +31,14 @@ interface LogProviderProps {
   children: ReactNode;
 }
 
+let logCounter = 0;
+
 export const LogProvider = ({ children }: LogProviderProps) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
   const addLog = useCallback((message: string, type: LogType = 'info') => {
     const newLog: LogEntry = {
-      id: Date.now() + Math.random(),
+      id: `${Date.now()}-${logCounter++}`,
       timestamp: new Date().toLocaleTimeString(),
       message,
       type,
