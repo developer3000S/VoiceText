@@ -9,7 +9,8 @@ import { Loader2, Mic, Square, FileText, Upload } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
 import { decodeDtmfFromAudio } from '@/lib/dtmf-decoder';
-import { Capacitor, Plugins } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
+import { Permissions } from '@capacitor/core/apis';
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
@@ -24,38 +25,33 @@ export function DecoderTab() {
 
   const checkAndRequestPermissions = useCallback(async () => {
     if (!Capacitor.isNativePlatform()) {
+      // On web, permission is handled by getUserMedia, so we assume it can be requested.
       setHasMicrophonePermission(true);
       setIsPermissionChecked(true);
       return true;
     }
 
     try {
-      const { Permissions } = Plugins;
-      if (!Permissions) {
-        addLog('Permissions plugin is not available.', 'error');
-        toast({ variant: 'destructive', title: 'Ошибка', description: 'Не удалось загрузить плагин разрешений.' });
-        setIsPermissionChecked(true);
-        return false;
-      }
-      
-      let permStatus = await Permissions.check({ name: 'microphone' });
+      addLog('Проверка разрешений на нативном устройстве...', 'info');
+      let permStatus = await Permissions.check({ alias: 'microphone' });
 
       if (permStatus.state === 'granted') {
         setHasMicrophonePermission(true);
-        setIsPermissionChecked(true);
         addLog('Разрешение на микрофон уже предоставлено.', 'info');
         return true;
       }
 
-      if (permStatus.state === 'prompt') {
-        permStatus = await Permissions.request({ name: 'microphone' });
+      if (permStatus.state === 'prompt' || permStatus.state === 'prompt-with-rationale') {
+        addLog('Разрешение еще не предоставлено, запрашиваем...', 'info');
+        permStatus = await Permissions.request({ alias: 'microphone' });
       }
 
-      if (permStatus.state === 'granted') {
-        setHasMicrophonePermission(true);
+      const permissionGranted = permStatus.state === 'granted';
+      setHasMicrophonePermission(permissionGranted);
+      
+      if (permissionGranted) {
         addLog('Разрешение на микрофон было успешно получено.', 'info');
       } else {
-        setHasMicrophonePermission(false);
         addLog('Пользователь отказал в доступе к микрофону.', 'warning');
         toast({
           variant: 'destructive',
@@ -63,7 +59,8 @@ export function DecoderTab() {
           description: 'Для записи аудио необходимо разрешение на использование микрофона.',
         });
       }
-      return permStatus.state === 'granted';
+      
+      return permissionGranted;
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -76,12 +73,7 @@ export function DecoderTab() {
   }, [addLog, toast]);
   
   useEffect(() => {
-    if(Capacitor.isNativePlatform()){
-        checkAndRequestPermissions();
-    } else {
-        setHasMicrophonePermission(true);
-        setIsPermissionChecked(true);
-    }
+    checkAndRequestPermissions();
   }, [checkAndRequestPermissions]);
 
 
@@ -129,11 +121,12 @@ export function DecoderTab() {
   };
   
   const handleStartRecording = async () => {
+    // Re-check permissions just in case user revoked them in settings
     const permissionGranted = await checkAndRequestPermissions();
     if(!permissionGranted) return;
     
     addLog('Запись с микрофона начата...');
-    startRecording();
+    await startRecording();
   }
 
   const handleStopRecording = async () => {
