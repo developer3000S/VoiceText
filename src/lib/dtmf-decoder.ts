@@ -109,7 +109,7 @@ function decodeSequence(sequence: string[]): string {
             continue;
         }
 
-        const keyChars = KEY_MAP[currentTone];
+        const keyChars = KEY_MAP[currentTone as keyof typeof KEY_MAP];
         if (!keyChars) {
             i++;
             continue;
@@ -188,10 +188,44 @@ export async function decodeDtmfFromAudio(blob: Blob): Promise<string | null> {
         }
         lastTone = tone;
     }
-
-    if (detectedTones.length === 0) {
-        return null;
+    
+    // Split sequence by '#' which is our same-key separator
+    const groupedTones: string[][] = [];
+    let currentGroup: string[] = [];
+    for(const tone of detectedTones) {
+        if (tone === '#') {
+            if (currentGroup.length) {
+                groupedTones.push(currentGroup);
+            }
+            currentGroup = [];
+        } else {
+            currentGroup.push(tone);
+        }
+    }
+    if (currentGroup.length) {
+        groupedTones.push(currentGroup);
     }
     
-    return decodeSequence(detectedTones);
+    // Now decode based on groups
+    const finalSequence = detectedTones.join('').split('#');
+
+    let sequenceForDecoder: string[] = [];
+    let tempSequence = detectedTones;
+
+    // First pass to handle separators (#)
+    let processedSequence: string[] = [];
+    let j = 0;
+    while (j < tempSequence.length) {
+      let current = tempSequence[j];
+      if (current === '#') {
+        processedSequence.push('#');
+        j++;
+        continue;
+      }
+      processedSequence.push(current);
+      j++;
+    }
+
+
+    return decodeSequence(processedSequence);
 }
