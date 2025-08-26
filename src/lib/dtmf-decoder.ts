@@ -5,8 +5,8 @@
 import { REVERSE_CHAR_MAP } from './dtmf';
 
 const TONE_DURATION_MS = 100;
-const PAUSE_DURATION_MS = 40; 
-const MIN_PAUSE_MS = 30; 
+const PAUSE_DURATION_MS = 50; 
+const MIN_PAUSE_MS = 40; 
 const THRESHOLD = 100; 
 const SAMPLE_RATE = 44100;
 
@@ -175,37 +175,38 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
         const data = filteredBuffer.getChannelData(0);
 
         const toneSamples = Math.floor(SAMPLE_RATE * (TONE_DURATION_MS / 1000));
+        const pauseSamples = Math.floor(SAMPLE_RATE * (PAUSE_DURATION_MS / 1000));
         const minPauseSamples = Math.floor(SAMPLE_RATE * (MIN_PAUSE_MS / 1000));
+        const stepSamples = Math.floor(toneSamples / 2); // Step less than a full tone duration
         
-        addLog(`Анализ аудио... Длительность тона: ${toneSamples} семплов, Минимальная пауза: ${minPauseSamples} семплов`);
+        addLog(`Анализ аудио... Длительность тона: ${toneSamples} семплов, Пауза: ${pauseSamples} семплов`);
 
         const detectedTones: string[] = [];
         let i = 0;
-        let lastToneTime = -Infinity;
-
+        
         while (i < data.length) {
             const chunkEnd = Math.min(i + toneSamples, data.length);
+            // Ensure chunk is not smaller than tone duration for reliable detection
+            if (chunkEnd - i < toneSamples) {
+                break;
+            }
+
             const chunk = data.slice(i, chunkEnd);
             const currentTone = detectTone(chunk, SAMPLE_RATE);
             
-            const currentTime = i / SAMPLE_RATE;
-
             if (currentTone) {
-                // Check if enough time has passed since the last detected tone
-                if (currentTime > lastToneTime + (TONE_DURATION_MS + PAUSE_DURATION_MS) / 1000) {
-                     addLog(`Обнаружен тон: '${currentTone}' на ${(currentTime*1000).toFixed(0)}мс`);
-                     detectedTones.push(currentTone);
-                     lastToneTime = currentTime;
-                     if (currentTone === '#') {
-                        addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
-                        break; 
-                    }
+                const currentTime = i / SAMPLE_RATE;
+                addLog(`Обнаружен тон: '${currentTone}' на ${(currentTime*1000).toFixed(0)}мс`);
+                detectedTones.push(currentTone);
+                 if (currentTone === '#') {
+                    addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
+                    break; 
                 }
-                // Move forward by the tone duration to avoid re-detecting
-                i += toneSamples;
+                // Skip past the detected tone and the following pause
+                i += toneSamples + pauseSamples;
             } else {
-                 // If no tone, advance by a smaller step
-                 i += minPauseSamples;
+                 // If no tone, advance by a smaller step to find the next tone
+                 i += stepSamples;
             }
         }
         
@@ -222,7 +223,4 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
          addLog(`Критическая ошибка при декодировании аудио: ${(error as Error).message}`, 'error');
          return null;
     }
-
-    
-
-    
+}
