@@ -102,12 +102,12 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
         payload = payload.slice(0, endIdx);
     }
     
-    addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
-
-    if (payload.some(tone => tone === '*' || tone === '#')) {
+     if (payload.some(tone => tone === '*' || tone === '#')) {
         addLog('Внутри пакета данных обнаружены недопустимые служебные символы (* или #). Декодирование прервано.', 'error');
         return null;
     }
+    
+    addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
     
     if (payload.length % 2 !== 0) {
         addLog(`Длина пакета данных нечетная (${payload.length}). Сообщение повреждено. Декодирование прервано.`, 'error');
@@ -182,7 +182,7 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
         const data = filteredBuffer.getChannelData(0);
         const toneSamples = Math.floor(SAMPLE_RATE * (TONE_DURATION_MS / 1000));
         const pauseSamples = Math.floor(SAMPLE_RATE * (PAUSE_DURATION_MS / 1000));
-        const stepSamples = Math.floor(toneSamples / 2);
+        const stepSamples = Math.floor(toneSamples / 4);
         
         addLog(`Анализ аудио... Длительность тона: ${toneSamples} семплов, Пауза: ${pauseSamples} семплов`);
 
@@ -208,9 +208,9 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
                         addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
                         break; 
                     }
-                    i += toneSamples;
+                    i += toneSamples; // Jump forward by a full tone duration
                 } else {
-                    i += stepSamples;
+                    i += stepSamples; // Move forward by a smaller step
                 }
             } else {
                 lastTone = null;
