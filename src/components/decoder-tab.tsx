@@ -23,7 +23,7 @@ export function DecoderTab() {
     setDecodedText(null);
     addLog(`Запуск локального декодирования аудио из источника: ${source}`);
     try {
-      const text = await decodeDtmfFromAudio(blob);
+      const text = await decodeDtmfFromAudio(blob, addLog);
       if (text) {
         setDecodedText(text);
         addLog(`Декодирование успешно. Результат: "${text}"`);
@@ -35,7 +35,7 @@ export function DecoderTab() {
           description: errorMsg,
         });
         setDecodedText(null);
-        addLog(errorMsg, 'error');
+        // Log is already added inside decodeDtmfFromAudio
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -70,8 +70,10 @@ export function DecoderTab() {
   const handleStopRecording = async () => {
     addLog('Запись с микрофона остановлена.');
     const blob = await stopRecording();
-    if(blob) {
+    if(blob && blob.size > 0) {
       handleDecode(blob, 'микрофон');
+    } else {
+      addLog('Запись пуста, декодирование отменено.', 'warning');
     }
   }
 

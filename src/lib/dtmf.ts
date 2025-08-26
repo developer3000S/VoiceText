@@ -57,8 +57,12 @@ export function textToDtmfSequence(text: string): string {
             sequence.push('*');
             isCurrentlyUpperCase = true;
         } else if (!isUpperCase && isCurrentlyUpperCase && isLetter) {
-            sequence.push('*');
-            isCurrentlyUpperCase = false;
+            // No need to toggle off for Russian, it's stateful.
+            // For latin, it's a one-time thing.
+            const isLatin = (lowerChar >= 'a' && lowerChar <= 'z');
+            if (isLatin) {
+              isCurrentlyUpperCase = false;
+            }
         }
 
         const dtmfChars = CHAR_MAP[lowerChar];

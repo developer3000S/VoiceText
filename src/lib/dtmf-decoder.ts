@@ -3,7 +3,7 @@
 
 import { DTMF_FREQUENCIES } from './dtmf';
 
-const TONE_DURATION_MS = 100;
+const TONE_DURATION_MS = 65;
 const PAUSE_DURATION_MS = 50;
 const MIN_CHUNK_DURATION_MS = TONE_DURATION_MS + PAUSE_DURATION_MS;
 const THRESHOLD = 100; // Power threshold for detecting a tone
@@ -86,10 +86,11 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
     return DTMF_MAP[`${detectedLowFreq},${detectedHighFreq}`] || null;
 }
 
-function decodeSequence(sequence: string[]): string {
+function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error') => void): string {
     if (!sequence || sequence.length === 0) {
         return '';
     }
+    addLog(`Начало декодирования последовательности: [${sequence.join(', ')}]`);
 
     let result = '';
     let isUpperCase = false;
@@ -100,26 +101,32 @@ function decodeSequence(sequence: string[]): string {
 
         if (currentTone === '*') {
             isUpperCase = !isUpperCase;
+            addLog(`Переключение регистра: ${isUpperCase ? 'ВКЛ' : 'ВЫКЛ'}`);
             i++;
             continue;
         }
         
         if (currentTone === '#') {
+            addLog(`Обнаружен разделитель, сброс счетчика нажатий.`);
             i++;
-            continue;
+            continue; // Separator, just move to the next tone
         }
 
         const keyChars = KEY_MAP[currentTone as keyof typeof KEY_MAP];
         if (!keyChars) {
+            addLog(`Неизвестный тон '${currentTone}', пропускается.`);
             i++;
             continue;
         }
-
+        
+        // Count consecutive presses of the same key
         let pressCount = 1;
         while (i + 1 < sequence.length && sequence[i + 1] === currentTone) {
             pressCount++;
             i++;
         }
+        
+        addLog(`Тон '${currentTone}' нажат ${pressCount} раз(а).`);
 
         let char = keyChars[(pressCount - 1) % keyChars.length];
         
@@ -128,27 +135,18 @@ function decodeSequence(sequence: string[]): string {
             const isLatin = (char >= 'a' && char <= 'z');
             if (isRussian || isLatin) {
                char = char.toUpperCase();
-               // For Russian letters, we need to switch case back manually for next letter
-               if (isRussian) {
-                   const nextToneIndex = sequence.findIndex((t, idx) => idx > i && t !== '#' && t !== '*');
-                   if(nextToneIndex !== -1) {
-                       const nextTone = sequence[nextToneIndex];
-                       const nextNextTone = sequence[nextToneIndex + 1];
-                       // Only turn off uppercase if next letter is not also uppercase
-                       if(nextTone !== '*' && nextNextTone !== '*') {
-                           isUpperCase = false;
-                       }
-                   } else {
-                       isUpperCase = false;
-                   }
-
-               } else {
-                 isUpperCase = false; // Auto-reset for latin
+               addLog(`Применение верхнего регистра: '${char}'`);
+               
+               // For Russian, case state is sticky. For Latin, it's one-time.
+               if (isLatin) {
+                   isUpperCase = false;
+                   addLog(`Сброс регистра после латинской буквы.`);
                }
             }
         }
         
         result += char;
+        addLog(`Добавлен символ: '${char}'. Текущий результат: "${result}"`);
         i++;
     }
 
@@ -162,13 +160,15 @@ async function getAudioContext(blob: Blob): Promise<AudioBuffer> {
      return audioContext.decodeAudioData(arrayBuffer);
 }
 
-export async function decodeDtmfFromAudio(blob: Blob): Promise<string | null> {
+export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error') => void): Promise<string | null> {
     const audioBuffer = await getAudioContext(blob);
+    addLog(`Аудиофайл успешно загружен. Длительность: ${audioBuffer.duration.toFixed(2)}с, Частота: ${audioBuffer.sampleRate}Гц`);
     const data = audioBuffer.getChannelData(0);
-    const sampleRate = audioBuffer.sampleRate;
 
-    const chunkSize = Math.floor(sampleRate * (TONE_DURATION_MS / 1000));
-    const stepSize = Math.floor(sampleRate * (MIN_CHUNK_DURATION_MS / 1000));
+    const chunkSize = Math.floor(audioBuffer.sampleRate * (TONE_DURATION_MS / 1000));
+    const stepSize = Math.floor(audioBuffer.sampleRate * (PAUSE_DURATION_MS / 1000));
+    
+    addLog(`Анализ аудио... Размер блока: ${chunkSize} семплов, Шаг: ${stepSize} семплов`);
 
     const detectedTones: string[] = [];
     let lastTone: string | null = null;
@@ -176,56 +176,28 @@ export async function decodeDtmfFromAudio(blob: Blob): Promise<string | null> {
 
     for (let i = 0; i + chunkSize <= data.length; i += stepSize) {
         const chunk = data.slice(i, i + chunkSize);
-        const tone = detectTone(chunk, sampleRate);
-        const currentTime = i / sampleRate;
-
-        if (tone && tone !== lastTone) {
-            // Debounce tones
-            if(currentTime > lastToneTime + (PAUSE_DURATION_MS / 1000)) {
-                detectedTones.push(tone);
-                lastToneTime = currentTime;
+        const tone = detectTone(chunk, audioBuffer.sampleRate);
+        
+        if(tone) {
+            if (tone !== lastTone) {
+                 const currentTime = (i / audioBuffer.sampleRate) * 1000;
+                 // Debounce to avoid detecting the same tone multiple times
+                 if (currentTime > lastToneTime + TONE_DURATION_MS) {
+                    detectedTones.push(tone);
+                    lastToneTime = currentTime;
+                    addLog(`Обнаружен тон: '${tone}' на ${currentTime.toFixed(0)}мс`);
+                }
             }
-        }
-        lastTone = tone;
-    }
-    
-    // Split sequence by '#' which is our same-key separator
-    const groupedTones: string[][] = [];
-    let currentGroup: string[] = [];
-    for(const tone of detectedTones) {
-        if (tone === '#') {
-            if (currentGroup.length) {
-                groupedTones.push(currentGroup);
-            }
-            currentGroup = [];
+            lastTone = tone;
         } else {
-            currentGroup.push(tone);
+            lastTone = null;
         }
     }
-    if (currentGroup.length) {
-        groupedTones.push(currentGroup);
-    }
     
-    // Now decode based on groups
-    const finalSequence = detectedTones.join('').split('#');
-
-    let sequenceForDecoder: string[] = [];
-    let tempSequence = detectedTones;
-
-    // First pass to handle separators (#)
-    let processedSequence: string[] = [];
-    let j = 0;
-    while (j < tempSequence.length) {
-      let current = tempSequence[j];
-      if (current === '#') {
-        processedSequence.push('#');
-        j++;
-        continue;
-      }
-      processedSequence.push(current);
-      j++;
+    if (detectedTones.length === 0) {
+      addLog("DTMF тоны не обнаружены в аудио.", 'warning');
+      return null;
     }
 
-
-    return decodeSequence(processedSequence);
+    return decodeSequence(detectedTones, addLog);
 }

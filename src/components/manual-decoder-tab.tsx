@@ -41,7 +41,7 @@ export function ManualDecoderTab() {
       const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
       
       addLog('Аудио сгенерировано, запуск локального декодирования...');
-      const text = await decodeDtmfFromAudio(wavBlob);
+      const text = await decodeDtmfFromAudio(wavBlob, addLog);
      
       if (text) {
         setDecodedText(text);
@@ -54,7 +54,7 @@ export function ManualDecoderTab() {
           description: errorMsg,
         });
         setDecodedText(null);
-        addLog(`Ошибка ручного декодирования: ${errorMsg}`, 'error');
+        // Log already added inside the decoder function
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -86,7 +86,7 @@ export function ManualDecoderTab() {
                 <FormItem>
                   <FormLabel>Последовательность DTMF</FormLabel>
                   <FormControl>
-                    <Input placeholder="например, 8,8,8, 2,2, 3,3,3,3,3,3, 8, 1" {...field} />
+                    <Input placeholder="например, *7,7,4,3,3,6,6,6,6,1,1,1,1" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
