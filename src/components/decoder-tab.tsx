@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { decodeAudioAction } from '@/app/actions';
-import { Loader2, Mic, Square, FileText } from 'lucide-react';
+import { Loader2, Mic, Square, FileText, Upload } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 
 function blobToDataURL(blob: Blob): Promise<string> {
@@ -23,6 +23,7 @@ export function DecoderTab() {
   const [decodedText, setDecodedText] = useState<string | null>(null);
   const { toast } = useToast();
   const { isRecording, audioBlob, startRecording, stopRecording } = useRecorder();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDecode = useCallback(async (blob: Blob) => {
     setIsLoading(true);
@@ -57,24 +58,47 @@ export function DecoderTab() {
     }
   }, [audioBlob, handleDecode]);
 
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      handleDecode(file);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
   return (
     <Card className="border-0 shadow-none">
       <CardHeader>
         <CardTitle>Декодер DTMF в текст</CardTitle>
-        <CardDescription>Запишите DTMF-тоны с микрофона и декодируйте их в текст.</CardDescription>
+        <CardDescription>Запишите или загрузите аудио с DTMF-тонами для декодирования в текст.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 text-center">
-        <Button onClick={isRecording ? stopRecording : startRecording} className="w-full" disabled={isLoading}>
-          {isRecording ? (
-            <>
-              <Square className="mr-2 h-4 w-4 animate-pulse fill-current" /> Остановить запись
-            </>
-          ) : (
-            <>
-              <Mic className="mr-2 h-4 w-4" /> Начать запись
-            </>
-          )}
-        </Button>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Button onClick={isRecording ? stopRecording : startRecording} className="w-full" disabled={isLoading}>
+            {isRecording ? (
+              <>
+                <Square className="mr-2 h-4 w-4 animate-pulse fill-current" /> Остановить запись
+              </>
+            ) : (
+              <>
+                <Mic className="mr-2 h-4 w-4" /> Начать запись
+              </>
+            )}
+          </Button>
+          <Button onClick={handleUploadClick} variant="outline" className="w-full" disabled={isLoading}>
+            <Upload className="mr-2 h-4 w-4" /> Загрузить файл
+          </Button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+            accept="audio/*"
+          />
+        </div>
         {(isLoading || decodedText) && (
           <Card className="bg-muted/50 mt-4">
             <CardHeader>

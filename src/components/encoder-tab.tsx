@@ -10,8 +10,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { encodeTextAction } from '@/app/actions';
-import { Loader2, PlayCircle, Volume2 } from 'lucide-react';
-import { playDtmfSequence } from '@/lib/dtmf';
+import { Loader2, PlayCircle, Volume2, Download, CircleDashed } from 'lucide-react';
+import { playDtmfSequence, renderDtmfSequenceToAudioBuffer } from '@/lib/dtmf';
+import { bufferToWave } from '@/lib/wav';
 
 const FormSchema = z.object({
   text: z.string().min(1, "Сообщение не может быть пустым.").max(100, "Сообщение слишком длинное."),
@@ -21,6 +22,7 @@ export function EncoderTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [dtmfSequence, setDtmfSequence] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<z.infer<typeof FormSchema>>({
@@ -61,6 +63,31 @@ export function EncoderTab() {
     setIsPlaying(false);
   }
 
+  async function handleSave() {
+    if (!dtmfSequence) return;
+    setIsSaving(true);
+    try {
+      const audioBuffer = await renderDtmfSequenceToAudioBuffer(dtmfSequence);
+      const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
+      const url = URL.createObjectURL(wavBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'dtmf_sequence.wav';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+       console.error("Save error:", error);
+       toast({
+        variant: "destructive",
+        title: "Ошибка сохранения",
+        description: "Не удалось сохранить аудиофайл.",
+      });
+    }
+    setIsSaving(false);
+  }
+
   return (
     <Card className="border-0 shadow-none">
       <CardHeader>
@@ -96,17 +123,30 @@ export function EncoderTab() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="font-mono text-sm break-all bg-background p-3 rounded-md">{dtmfSequence}</p>
-              <Button onClick={handlePlay} disabled={isPlaying} className="w-full" variant="secondary">
-                {isPlaying ? (
-                  <>
-                    <Volume2 className="mr-2 h-4 w-4 animate-pulse" /> Воспроизведение...
-                  </>
-                ) : (
-                  <>
-                    <PlayCircle className="mr-2 h-4 w-4" /> Воспроизвести тоны
-                  </>
-                )}
-              </Button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Button onClick={handlePlay} disabled={isPlaying || isSaving} className="w-full" variant="secondary">
+                  {isPlaying ? (
+                    <>
+                      <Volume2 className="mr-2 h-4 w-4 animate-pulse" /> Воспроизведение...
+                    </>
+                  ) : (
+                    <>
+                      <PlayCircle className="mr-2 h-4 w-4" /> Воспроизвести тоны
+                    </>
+                  )}
+                </Button>
+                <Button onClick={handleSave} disabled={isSaving || isPlaying} className="w-full" variant="outline">
+                   {isSaving ? (
+                    <>
+                      <CircleDashed className="mr-2 h-4 w-4 animate-spin" /> Сохранение...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="mr-2 h-4 w-4" /> Сохранить файл
+                    </>
+                  )}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}
