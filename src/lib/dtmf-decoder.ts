@@ -5,8 +5,8 @@
 import { REVERSE_CHAR_MAP } from './dtmf';
 
 const TONE_DURATION_MS = 100;
-const PAUSE_DURATION_MS = 45; 
-const MIN_PAUSE_MS = 40; // Shorter pause for detection robustness
+const PAUSE_DURATION_MS = 40; 
+const MIN_PAUSE_MS = 30; 
 const THRESHOLD = 100; 
 const SAMPLE_RATE = 44100;
 
@@ -94,7 +94,6 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
     }
      if (endIdx === -1) {
         addLog('Стоповый символ # не найден. Сообщение может быть неполным.', 'warning');
-        // We can still try to decode what we have
     }
     if (endIdx !== -1 && endIdx < startIdx) {
         addLog('Стоповый символ # найден перед стартовым символом *. Сообщение некорректно.', 'error');
@@ -150,22 +149,20 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
         addLog('Применение цифровых фильтров для очистки аудио...');
         const offlineCtx = new OfflineAudioContext(
             originalAudioBuffer.numberOfChannels,
-            originalAudioBuffer.duration * SAMPLE_RATE, // Рендерим с целевой частотой дискретизации
+            originalAudioBuffer.duration * SAMPLE_RATE,
             SAMPLE_RATE
         );
 
         const source = offlineCtx.createBufferSource();
         source.buffer = originalAudioBuffer;
 
-        // Фильтр высоких частот (убирает низкочастотный шум и голос)
         const highPass = offlineCtx.createBiquadFilter();
         highPass.type = 'highpass';
-        highPass.frequency.value = 650; // Ниже самой низкой частоты DTMF (697 Hz)
+        highPass.frequency.value = 650; 
 
-        // Фильтр низких частот (убирает высокочастотный шум и гармоники)
         const lowPass = offlineCtx.createBiquadFilter();
         lowPass.type = 'lowpass';
-        lowPass.frequency.value = 1700; // Выше самой высокой частоты DTMF (1633 Hz)
+        lowPass.frequency.value = 1700;
 
         source.connect(highPass);
         highPass.connect(lowPass);
@@ -184,33 +181,31 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
 
         const detectedTones: string[] = [];
         let i = 0;
-        let lastTone = null;
+        let lastToneTime = -Infinity;
 
         while (i < data.length) {
-            // Check a chunk for a tone
             const chunkEnd = Math.min(i + toneSamples, data.length);
             const chunk = data.slice(i, chunkEnd);
             const currentTone = detectTone(chunk, SAMPLE_RATE);
+            
+            const currentTime = i / SAMPLE_RATE;
 
             if (currentTone) {
-                // If the tone is different from the last one, add it.
-                // This prevents detecting the same long tone multiple times.
-                if (currentTone !== lastTone) {
-                    addLog(`Обнаружен тон: '${currentTone}' на ${((i/SAMPLE_RATE)*1000).toFixed(0)}мс`);
-                    detectedTones.push(currentTone);
-                    if (currentTone === '#') {
+                // Check if enough time has passed since the last detected tone
+                if (currentTime > lastToneTime + (TONE_DURATION_MS + PAUSE_DURATION_MS) / 1000) {
+                     addLog(`Обнаружен тон: '${currentTone}' на ${(currentTime*1000).toFixed(0)}мс`);
+                     detectedTones.push(currentTone);
+                     lastToneTime = currentTime;
+                     if (currentTone === '#') {
                         addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
-                        break; // Stop analysis
+                        break; 
                     }
                 }
-                lastTone = currentTone;
-                // Jump forward by the length of the tone to avoid re-reading it
-                i += toneSamples; 
+                // Move forward by the tone duration to avoid re-detecting
+                i += toneSamples;
             } else {
-                // If no tone, it's a pause. Reset lastTone and advance.
-                lastTone = null;
-                // Advance by a smaller step to not miss the start of the next tone
-                i += minPauseSamples; 
+                 // If no tone, advance by a smaller step
+                 i += minPauseSamples;
             }
         }
         
@@ -227,5 +222,7 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
          addLog(`Критическая ошибка при декодировании аудио: ${(error as Error).message}`, 'error');
          return null;
     }
+
+    
 
     
