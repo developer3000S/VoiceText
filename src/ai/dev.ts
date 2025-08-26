@@ -1,1 +1,5 @@
-// Flows will be imported for their side effects in this file.
+import { config } from 'dotenv';
+config();
+
+import '@/ai/flows/dtmf-audio-decoder.ts';
+import '@/ai/flows/dtmf-text-encoder.ts';
