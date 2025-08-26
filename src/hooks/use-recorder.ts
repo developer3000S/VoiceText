@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from './use-toast';
 import { Capacitor } from '@capacitor/core';
-// Do not import VoiceRecorder directly, it will be imported dynamically.
+// Do not import VoiceRecorder statically, as it causes build issues.
 
 export const useRecorder = () => {
     const { toast } = useToast();
@@ -16,27 +16,12 @@ export const useRecorder = () => {
     
     const requestPermissions = async (): Promise<boolean> => {
         if (Capacitor.isNativePlatform()) {
-             try {
-                // Dynamic import for capacitor plugin
-                const { VoiceRecorder } = await import('@capacitor-community/voice-recorder');
-                const permResult = await VoiceRecorder.requestAudioRecordingPermission();
-                if(!permResult.value) {
-                     toast({
-                      variant: "destructive",
-                      title: "Ошибка разрешений",
-                      description: "Для записи голоса приложению нужен доступ к микрофону. Пожалуйста, предоставьте разрешение.",
-                    });
-                    return false;
-                }
-                return true;
-             } catch (e) {
-                 toast({
-                  variant: "destructive",
-                  title: "Ошибка плагина",
-                  description: `Не удалось запросить разрешения: ${(e as Error).message}`,
-                });
-                return false;
-             }
+             toast({
+                variant: "destructive",
+                title: "Функция не поддерживается",
+                description: "Запись с микрофона на мобильном устройстве временно отключена из-за технических проблем.",
+             });
+             return false;
         }
         // For web, permission is requested by getUserMedia
         return true;
@@ -45,6 +30,15 @@ export const useRecorder = () => {
     const startRecording = useCallback(async () => {
         const hasPermission = await requestPermissions();
         if (!hasPermission) return;
+
+        if (Capacitor.isNativePlatform()) {
+            toast({
+                variant: "destructive",
+                title: "Запись недоступна",
+                description: "Не удалось начать запись на этом устройстве.",
+            });
+            return;
+        }
 
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             try {
@@ -85,7 +79,17 @@ export const useRecorder = () => {
     }, [toast]);
 
     const stopRecording = useCallback((): Promise<Blob> => {
-        return new Promise((resolve) => {
+        return new Promise(async (resolve) => {
+             if (Capacitor.isNativePlatform()) {
+                 toast({
+                    variant: "destructive",
+                    title: "Запись недоступна",
+                    description: "Не удалось остановить запись на этом устройстве.",
+                 });
+                 resolve(new Blob());
+                 return;
+             }
+
              if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
                 stopResolver = resolve;
                 mediaRecorderRef.current.stop();
@@ -94,7 +98,7 @@ export const useRecorder = () => {
                 resolve(new Blob()); // Resolve with empty blob if not recording
             }
         })
-    }, []);
+    }, [toast]);
     
     const getAudioBlob = useCallback((): Blob | null => {
         if(audioChunksRef.current.length > 0) {
