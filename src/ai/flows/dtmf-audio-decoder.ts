@@ -36,11 +36,11 @@ const prompt = ai.definePrompt({
   name: 'decodeDtmfAudioPrompt',
   input: {schema: DecodeDtmfAudioInputSchema},
   output: {schema: DecodeDtmfAudioOutputSchema},
-  prompt: `Вы - эксперт в декодировании аудиосигналов DTMF (двухтональный многочастотный) в текст.
+  prompt: `You are an expert in decoding DTMF (Dual-Tone Multi-Frequency) audio signals into text. Your output MUST be a valid JSON object.
 
-Вы получите аудиозапись тонов DTMF. Ваша задача - проанализировать аудио и преобразовать тоны DTMF в читаемое текстовое сообщение.
+You will be given an audio recording of DTMF tones. Your task is to analyze the audio and convert the DTMF tones into a readable text message.
 
-Сопоставление символов с клавишами телефона следующее:
+The character mapping for the phone keys is as follows:
 - 1: . , ? !
 - 2: А Б В Г A B C
 - 3: Д Е Ж З D E F
@@ -50,18 +50,18 @@ const prompt = ai.definePrompt({
 - 7: Ф Х Ц Ч P Q R S
 - 8: Ш Щ Ъ Ы T U V
 - 9: Ь Э Ю Я W X Y Z
-- 0: Пробел
-- *: Переключение регистра (большие/маленькие буквы)
-- #: Для символов, которых нет на клавиатуре.
+- 0: Space
+- *: Case switch (uppercase/lowercase)
+- #: For symbols not on the keypad.
 
-- Каждая цифра соответствует нажатию клавиши. Паузы между тонами разделяют нажатия для одного символа. Например, последовательность тонов для 'В' будет "2,2,2". Для 'C' - "2,2,2,2,2,2".
-- Проанализируйте предоставленный аудиосигнал, чтобы определить последовательность тонов DTMF.
-- Преобразуйте определенные тоны в соответствующие им текстовые символы.
-- Если аудио не содержит распознаваемых тонов DTMF или является тихим, вы должны указать, что декодирование не удалось.
+- Each digit corresponds to a key press. Pauses between tones separate presses for a single character. For example, the tone sequence for 'В' would be "2,2,2". For 'C' - "2,2,2,2,2,2".
+- Analyze the provided audio signal to identify the sequence of DTMF tones.
+- Convert the identified tones into their corresponding text characters.
+- If the audio contains no recognizable DTMF tones or is silent, you MUST indicate that the decoding was not successful.
 
-Вот аудиоданные: {{media url=audioDataUri}}
+Here is the audio data: {{media url=audioDataUri}}
 
-Пожалуйста, верните декодированный текст и логическое значение, указывающее, было ли декодирование успешным.
+Please return the decoded text and a boolean indicating if the decoding was successful.
 `,
 });
 

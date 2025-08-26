@@ -94,7 +94,7 @@ export function ManualDecoderTab() {
                 <FormItem>
                   <FormLabel>Последовательность DTMF</FormLabel>
                   <FormControl>
-                    <Input placeholder="например, 1,2,3,#,*,0" {...field} />
+                    <Input placeholder="например, *,7,7,7,7, 3,3, 4,4,4, 3, 8" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
