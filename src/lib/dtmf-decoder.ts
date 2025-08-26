@@ -1,11 +1,12 @@
+
 // Implements the Goertzel algorithm for DTMF tone detection.
 // This is a local, offline alternative to AI-based decoding.
 
 import { REVERSE_CHAR_MAP } from './dtmf';
 
 const TONE_DURATION_MS = 100;
-const PAUSE_DURATION_MS = 50; 
-const MIN_PAUSE_MS = 45; // Shorter pause for detection robustness
+const PAUSE_DURATION_MS = 45; 
+const MIN_PAUSE_MS = 40; // Shorter pause for detection robustness
 const THRESHOLD = 100; 
 const SAMPLE_RATE = 44100;
 
@@ -93,14 +94,14 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
     }
      if (endIdx === -1) {
         addLog('Стоповый символ # не найден. Сообщение может быть неполным.', 'warning');
-        return '';
+        // We can still try to decode what we have
     }
-    if (endIdx < startIdx) {
+    if (endIdx !== -1 && endIdx < startIdx) {
         addLog('Стоповый символ # найден перед стартовым символом *. Сообщение некорректно.', 'error');
         return '';
     }
 
-    const payload = sequence.slice(startIdx + 1, endIdx);
+    const payload = sequence.slice(startIdx + 1, endIdx === -1 ? undefined : endIdx);
     addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
 
     if (payload.length % 2 !== 0) {
@@ -177,34 +178,39 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
         const data = filteredBuffer.getChannelData(0);
 
         const toneSamples = Math.floor(SAMPLE_RATE * (TONE_DURATION_MS / 1000));
-        const pauseSamples = Math.floor(SAMPLE_RATE * (MIN_PAUSE_MS / 1000));
+        const minPauseSamples = Math.floor(SAMPLE_RATE * (MIN_PAUSE_MS / 1000));
         
-        addLog(`Анализ аудио... Длительность тона: ${toneSamples} семплов, Минимальная пауза: ${pauseSamples} семплов`);
+        addLog(`Анализ аудио... Длительность тона: ${toneSamples} семплов, Минимальная пауза: ${minPauseSamples} семплов`);
 
         const detectedTones: string[] = [];
         let i = 0;
-        let lastToneEndPosition = -pauseSamples; // Позволяет обнаружить первый тон
+        let lastTone = null;
 
-        while (i <= data.length - toneSamples) {
-            const chunk = data.slice(i, i + toneSamples);
-            const tone = detectTone(chunk, SAMPLE_RATE);
-            
-            if (tone) {
-                // Убедимся, что прошла минимальная пауза с момента последнего тона
-                if (i > lastToneEndPosition + pauseSamples) {
-                    addLog(`Обнаружен тон: '${tone}' на ${((i/SAMPLE_RATE)*1000).toFixed(0)}мс`);
-                    detectedTones.push(tone);
-                    if (tone === '#') {
+        while (i < data.length) {
+            // Check a chunk for a tone
+            const chunkEnd = Math.min(i + toneSamples, data.length);
+            const chunk = data.slice(i, chunkEnd);
+            const currentTone = detectTone(chunk, SAMPLE_RATE);
+
+            if (currentTone) {
+                // If the tone is different from the last one, add it.
+                // This prevents detecting the same long tone multiple times.
+                if (currentTone !== lastTone) {
+                    addLog(`Обнаружен тон: '${currentTone}' на ${((i/SAMPLE_RATE)*1000).toFixed(0)}мс`);
+                    detectedTones.push(currentTone);
+                    if (currentTone === '#') {
                         addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
-                        return decodeSequence(detectedTones, addLog);
+                        break; // Stop analysis
                     }
-                    lastToneEndPosition = i;
-                    i += toneSamples; // Пропускаем весь кусок с тоном
-                } else {
-                     i += 100; // Небольшой шаг, если тон слишком близко
                 }
+                lastTone = currentTone;
+                // Jump forward by the length of the tone to avoid re-reading it
+                i += toneSamples; 
             } else {
-                i += Math.floor(pauseSamples / 2); // Двигаемся дальше, если тона нет
+                // If no tone, it's a pause. Reset lastTone and advance.
+                lastTone = null;
+                // Advance by a smaller step to not miss the start of the next tone
+                i += minPauseSamples; 
             }
         }
         
@@ -221,4 +227,5 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
          addLog(`Критическая ошибка при декодировании аудио: ${(error as Error).message}`, 'error');
          return null;
     }
-}
+
+    
