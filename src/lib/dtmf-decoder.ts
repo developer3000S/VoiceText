@@ -3,7 +3,7 @@
 
 import { DTMF_FREQUENCIES, CHAR_MAP } from './dtmf';
 
-const TONE_DURATION_MS = 65;
+const TONE_DURATION_MS = 100; // Corrected: Match encoder's 0.1s = 100ms
 const PAUSE_DURATION_MS = 50;
 const THRESHOLD = 100; // Power threshold for detecting a tone
 const SAMPLE_RATE = 44100; // Standard sample rate
@@ -80,14 +80,18 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
 }
 
 function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): string {
-    if (!sequence || sequence.length < 2) {
-        addLog('Последовательность слишком коротка для декодирования.', 'warning');
+    if (!sequence || sequence.length === 0) {
+        addLog('Последовательность пуста, декодирование невозможно.', 'warning');
         return '';
+    }
+     if (sequence.length % 2 !== 0) {
+        addLog(`Обнаружена последовательность нечетной длины (${sequence.length}). Последний тон будет проигнорирован.`, 'warning');
+        sequence.pop();
     }
     addLog(`Начало декодирования последовательности: [${sequence.join(', ')}]`);
 
     let result = '';
-    for (let i = 0; i < sequence.length - 1; i += 2) {
+    for (let i = 0; i < sequence.length; i += 2) {
         const codePair = sequence[i] + sequence[i + 1];
         const char = REVERSE_CHAR_MAP[codePair];
         if (char) {
@@ -106,13 +110,11 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
 async function getAudioContext(blob: Blob): Promise<AudioBuffer> {
      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: SAMPLE_RATE });
      const arrayBuffer = await blob.arrayBuffer();
-     // Add a custom log function to avoid undefined issues in this scope
-     const localLog = (msg: string, type: 'error' | 'info' | 'warning' = 'info') => console.log(`[${type.toUpperCase()}] ${msg}`);
      try {
         const buffer = await audioContext.decodeAudioData(arrayBuffer);
         return buffer;
      } catch (e) {
-        localLog(`Не удалось декодировать аудиоданные: ${(e as Error).message}`, 'error');
+        console.error(`Не удалось декодировать аудиоданные: ${(e as Error).message}`);
         throw e;
      }
 }
@@ -143,16 +145,25 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
 
         const detectedTones: string[] = [];
         let i = 0;
+        let lastToneTime = -Infinity;
+
         while (i + chunkSize <= data.length) {
             const chunk = data.slice(i, i + chunkSize);
             const tone = detectTone(chunk, SAMPLE_RATE);
             
             if (tone) {
                 const currentTime = (i / SAMPLE_RATE) * 1000;
-                addLog(`Обнаружен тон: '${tone}' на ${currentTime.toFixed(0)}мс`);
-                detectedTones.push(tone);
-                // Skip past the detected tone and the following pause
-                i += stepSize; 
+                 // Ensure we don't detect the same tone again within its duration
+                if (currentTime > lastToneTime + TONE_DURATION_MS) {
+                    addLog(`Обнаружен тон: '${tone}' на ${currentTime.toFixed(0)}мс`);
+                    detectedTones.push(tone);
+                    lastToneTime = currentTime;
+                    // Skip past the detected tone and the following pause
+                    i += stepSize;
+                } else {
+                     // Still inside the previous tone's duration, just advance a bit
+                    i += Math.floor(chunkSize / 8);
+                }
             } else {
                 // If no tone, advance by a smaller amount to not miss the start of a tone
                 i += Math.floor(chunkSize / 4);
