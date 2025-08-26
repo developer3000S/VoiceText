@@ -204,14 +204,16 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
         while (i + toneSamples <= data.length) {
             const chunk = data.slice(i, i + toneSamples);
             const currentTone = detectTone(chunk, SAMPLE_RATE);
-            const currentTime = Date.now();
+            
 
             if (currentTone) {
+                const currentTime = i / SAMPLE_RATE * 1000;
                 const timeSinceLast = currentTime - lastToneTime;
+
                 // Debounce check: is it a new tone or an echo of the last one?
                 if (currentTone !== lastTone || timeSinceLast > DEBOUNCE_MS) {
                     detectedTones.push(currentTone);
-                    addLog(`Обнаружен тон: '${currentTone}' на ${(i / SAMPLE_RATE * 1000).toFixed(0)}мс`);
+                    addLog(`Обнаружен тон: '${currentTone}' на ${currentTime.toFixed(0)}мс`);
                     lastTone = currentTone;
                     lastToneTime = currentTime;
                      if (currentTone === '#') {
@@ -244,3 +246,5 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
          return null;
     }
 }
+
+    
