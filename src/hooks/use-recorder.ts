@@ -3,8 +3,8 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useToast } from './use-toast';
-import { Capacitor } from '@capacitor/core';
-import { Permissions } from '@capacitor/permissions';
+import { Capacitor, PermissionState } from '@capacitor/core';
+import { Permissions } from '@capacitor/core';
 
 export const useRecorder = () => {
     const { toast } = useToast();
@@ -15,7 +15,6 @@ export const useRecorder = () => {
 
     const checkAndRequestPermission = useCallback(async (): Promise<boolean> => {
         if (!Capacitor.isNativePlatform()) {
-            // В вебе просто пытаемся получить доступ, браузер сам покажет диалог
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 stream.getTracks().forEach(track => track.stop());
@@ -33,9 +32,8 @@ export const useRecorder = () => {
             }
         }
         
-        // Нативная логика для Android/iOS
         try {
-            let permissionStatus = await Permissions.query({ name: 'microphone' });
+            let permissionStatus = await Permissions.query({ name: 'microphone' as any });
 
             if (permissionStatus.state === 'granted') {
                 setHasPermission(true);
@@ -43,7 +41,7 @@ export const useRecorder = () => {
             }
 
             if (permissionStatus.state === 'prompt') {
-                permissionStatus = await Permissions.request({ name: 'microphone' });
+                permissionStatus = await Permissions.request({ name: 'microphone' as any });
             }
 
             if (permissionStatus.state === 'granted') {
