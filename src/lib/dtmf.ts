@@ -15,22 +15,34 @@ function xorEncryptDecrypt(text: string, key: string): string {
 
 // Unicode-совместимое кодирование в Base64
 function toBase64(str: string): string {
-    const buffer = new TextEncoder().encode(str);
-    let binary = '';
-    for (let i = 0; i < buffer.length; i++) {
-        binary += String.fromCharCode(buffer[i]);
+    try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(str);
+        let binaryString = '';
+        for (let i = 0; i < data.length; i++) {
+            binaryString += String.fromCharCode(data[i]);
+        }
+        return btoa(binaryString);
+    } catch (e) {
+        console.error("toBase64 Error:", e);
+        return "";
     }
-    return btoa(binary);
 }
 
 // Unicode-совместимое декодирование из Base64
 function fromBase64(base64: string): string {
-    const binary_string = atob(base64);
-    const bytes = new Uint8Array(binary_string.length);
-    for (let i = 0; i < binary_string.length; i++) {
-        bytes[i] = binary_string.charCodeAt(i);
+    try {
+        const binary_string = atob(base64);
+        const bytes = new Uint8Array(binary_string.length);
+        for (let i = 0; i < binary_string.length; i++) {
+            bytes[i] = binary_string.charCodeAt(i);
+        }
+        const decoder = new TextDecoder();
+        return decoder.decode(bytes);
+    } catch (e) {
+        console.error("fromBase64 Error:", e);
+        return "";
     }
-    return new TextDecoder().decode(bytes);
 }
 
 
@@ -51,13 +63,15 @@ export const COMPACT_CHAR_MAP: { [key: string]: string } = {
   'а': '53', 'б': '54', 'в': '55', 'г': '56', 'д': '57', 'е': '58', 'ё': '59', 'ж': '60', 'з': '61', 'и': '62', 'й': '63',
   'к': '64', 'л': '65', 'м': '66', 'н': '67', 'о': '68', 'п': '69', 'р': '70', 'с': '71', 'т': '72', 'у': '73',
   'ф': '74', 'х': '75', 'ц': '76', 'ч': '77', 'ш': '78', 'щ': '79', 'ъ': '80', 'ы': '81', 'ь': '82', 'э': '83', 'ю': '84', 'я': '85',
-  'A': '86', 'B': '87', 'C': '88', 'D': '89', 'E': '90', 'F': '91', 'G': '92', 'H': '93', 'I': '94', 'J': '95', 'K': '96',
-  'L': '97', 'M': '98', 'N': '99',
+  'A': '20', 'B': '22', 'C': '38', 'E': '25', 'H': '34', 'I': '29', 'K': '31', 'M': '33', 'O': '35', 'P': '37', 'T': '39', 'X': '42', 'Y': '40', // Latin lookalikes
 };
 
 
 export const REVERSE_CHAR_MAP: { [key: string]: string } = Object.entries(COMPACT_CHAR_MAP).reduce((acc, [key, value]) => {
-    acc[value] = key;
+    // Avoid overwriting for latin lookalikes, first one (Cyrillic) wins.
+    if (!acc[value]) {
+       acc[value] = key;
+    }
     return acc;
 }, {} as { [key: string]: string });
 
@@ -69,20 +83,23 @@ export function textToDtmfSequence(text: string, addLog: (message: string, type?
     let processedText = text;
     if (isEncrypted) {
         addLog(`Шифрование текста с паролем...`);
-        processedText = xorEncryptDecrypt(text, password);
-        // Base64 encode to handle any non-standard characters from XOR
-        processedText = toBase64(processedText);
+        const encrypted = xorEncryptDecrypt(text, password);
+        processedText = toBase64(encrypted);
         addLog(`Текст зашифрован и закодирован в Base64.`);
     }
 
     addLog(`Начало кодирования: "${processedText}"`);
     
-    // Using a more robust char-to-code mapping to handle any character
     for (const char of processedText) {
-        const charCode = char.charCodeAt(0);
-        // Pad with leading zeros to make it 3 digits
-        const dtmfCode = charCode.toString().padStart(3, '0');
-        payloadSequence.push(...dtmfCode.split(''));
+        // For encrypted base64 text, or any character not in our map, use a fallback
+        if (isEncrypted || !COMPACT_CHAR_MAP[char]) {
+            const charCode = char.charCodeAt(0);
+            // Prefix with '09' to indicate it's a char code, not from the map
+            const dtmfCode = '09' + charCode.toString().padStart(3, '0');
+            payloadSequence.push(...dtmfCode.split(''));
+        } else {
+             payloadSequence.push(...(COMPACT_CHAR_MAP[char] || '').split(''));
+        }
     }
     
     // Header: * + (0 for unencrypted, 1 for encrypted) + payload + #
@@ -100,36 +117,49 @@ export function dtmfToText(sequence: string[], isEncrypted: boolean, addLog: (me
         return null;
     }
 
-    if (sequence.length % 3 !== 0) {
-        addLog(`Длина пакета данных не кратна 3 (${sequence.length}). Сообщение повреждено.`, 'error');
-        return null;
-    }
-
-    let encodedText = '';
-    for (let i = 0; i < sequence.length; i += 3) {
-        const code = sequence[i] + sequence[i+1] + sequence[i+2];
-        const charCode = parseInt(code, 10);
-        if (!isNaN(charCode)) {
-            encodedText += String.fromCharCode(charCode);
-        } else {
-            addLog(`Неверная кодовая тройка '${code}', пропускается.`, 'warning');
+    let decodedText = '';
+    let i = 0;
+    while(i < sequence.length) {
+        const pair = sequence[i] + (sequence[i+1] || '');
+        
+        if (pair === '09') { // Fallback char code detected
+             if (i + 4 >= sequence.length) {
+                addLog(`Обнаружен код символа, но данных не хватает.`, 'error');
+                break;
+            }
+            const code = sequence[i+2] + sequence[i+3] + sequence[i+4];
+            const charCode = parseInt(code, 10);
+            if (!isNaN(charCode)) {
+                decodedText += String.fromCharCode(charCode);
+            }
+            i += 5; // consumed 5 digits
+        } else { // Standard compact map
+            const char = REVERSE_CHAR_MAP[pair];
+            if (char) {
+                decodedText += char;
+            } else {
+                addLog(`Неверная кодовая пара '${pair}', пропускается.`, 'warning');
+            }
+            i += 2; // consumed 2 digits
         }
     }
     
     if (isEncrypted && password) {
         try {
             addLog('Сообщение зашифровано. Расшифровка...');
-            const decodedFromBase64 = fromBase64(encodedText);
-            const decryptedText = xorEncryptDecrypt(decodedFromBase64, password);
+            const decryptedText = xorEncryptDecrypt(fromBase64(decodedText), password);
+            if (!decryptedText && decodedText) {
+                throw new Error("Decryption result is empty");
+            }
             addLog('Расшифровка завершена.');
             return decryptedText;
         } catch (e) {
-            addLog('Ошибка расшифровки. Вероятно, неверный пароль или поврежденные данные.', 'error');
+            addLog(`Ошибка расшифровки. Вероятно, неверный пароль или поврежденные данные. ${(e as Error).message}`, 'error');
             return null;
         }
     }
     
-    return encodedText;
+    return decodedText;
 }
 
 
