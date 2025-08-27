@@ -1,5 +1,5 @@
 
-import * as Tone from 'tone';
+import { textToDtmfSequence } from './dtmf';
 
 // --- CRC-8 Calculation ---
 // Polynomial: x^8 + x^2 + x + 1 => 0x07
@@ -26,7 +26,7 @@ function bytesToHex(bytes: Uint8Array): string {
 
 
 // --- Text to Packet Conversion ---
-export function textToVtpPacket(text: string, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): string {
+export function textToVtpPacket(text: string, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): string {
     addLog(`(V2) Начало кодирования по протоколу VTP: "${text}"`);
     
     // Convert text to UTF-8 bytes
@@ -56,17 +56,6 @@ export function textToVtpPacket(text: string, addLog: (message: string, type?: '
     const hexPacket = bytesToHex(fullPacketBytes);
     addLog(`(V2) Пакет в HEX: ${hexPacket}`);
     
-    // Convert hex string to a DTMF-compatible character string (0-9, A-D, *, #)
-    const dtmfPayload = hexPacket.toUpperCase().split('').map(hexChar => {
-        // Map E to * and F to # as they are not standard DTMF tones
-        if (hexChar === 'E') return '*';
-        if (hexChar === 'F') return '#';
-        return hexChar;
-    }).join(',');
-
-    // Frame with * and #
-    const finalSequence = `*,${dtmfPayload},#`;
-
-    addLog(`(V2) Кодирование завершено. Итоговая DTMF последовательность: ${finalSequence}`);
-    return finalSequence;
+    // Use the main DTMF sequence generator, which now handles preambles and passwords
+    return textToDtmfSequence(hexPacket, addLog, password, true);
 }

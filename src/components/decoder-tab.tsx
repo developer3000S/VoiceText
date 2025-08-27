@@ -51,22 +51,21 @@ export function DecoderTab() {
       let result;
       if (decodingType === 'v1') {
         result = await decodeDtmfFromAudio(blob, addLog);
-        if (result.extractedTones) {
-            setExtractedTones(result.extractedTones);
-        }
-        if (result.requiresPassword && !result.text) {
-            addLog('Сообщение зашифровано. Требуется пароль.', 'warning');
-            toast({ title: 'Требуется пароль', description: 'Это сообщение зашифровано. Введите пароль для расшифровки.' });
-        }
       } else {
         result = await decodeVtpFromAudio(blob, addLog);
       }
       
       setDecodedResult(result);
+      if (result.extractedTones) {
+        setExtractedTones(result.extractedTones);
+      }
 
       if (result.text !== null && result.text !== undefined) {
         addLog(`Декодирование успешно. Результат: "${result.text}"`);
-      } else if (!result.requiresPassword) {
+      } else if (result.requiresPassword) {
+        addLog('Сообщение зашифровано. Требуется пароль.', 'warning');
+        toast({ title: 'Требуется пароль', description: 'Это сообщение зашифровано. Введите пароль для расшифровки.' });
+      } else {
         const errorMsg = result.error || 'Не удалось распознать тоны или сообщение неполное.';
         addLog(errorMsg, 'error');
         toast({
@@ -143,24 +142,34 @@ export function DecoderTab() {
     audio.play();
   };
 
-  const handleDecrypt = () => {
-    if (!extractedTones || !password) {
+  const handleDecrypt = async () => {
+    if (!recordedBlob || !password) {
         toast({ variant: 'destructive', title: 'Ошибка', description: 'Нет данных для расшифровки или не введен пароль.' });
         return;
     }
     
-    addLog(`Запуск расшифровки с паролем для извлеченной последовательности.`);
+    addLog(`Запуск расшифровки с паролем.`);
     setIsLoading(true);
     
-    const result = decodeSequenceFromTones(extractedTones, addLog, password);
-    setDecodedResult(result);
-    
-    if (result.text) {
-        addLog(`Расшифровка успешна. Результат: "${result.text}"`);
-    } else {
-        const errorMsg = result.error || 'Неверный пароль или поврежденные данные.';
-        addLog(errorMsg, 'error');
-        toast({ variant: 'destructive', title: 'Ошибка расшифровки', description: errorMsg });
+    try {
+        let result;
+        if (decodingType === 'v1') {
+            result = await decodeDtmfFromAudio(recordedBlob, addLog, password);
+        } else {
+            result = await decodeVtpFromAudio(recordedBlob, addLog, password);
+        }
+        setDecodedResult(result);
+        
+        if (result.text) {
+            addLog(`Расшифровка успешна. Результат: "${result.text}"`);
+        } else {
+            const errorMsg = result.error || 'Неверный пароль или поврежденные данные.';
+            addLog(errorMsg, 'error');
+            toast({ variant: 'destructive', title: 'Ошибка расшифровки', description: errorMsg });
+        }
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        addLog(`Критическая ошибка при расшифровке: ${errorMessage}`, 'error');
     }
 
     setIsLoading(false);
@@ -244,7 +253,7 @@ export function DecoderTab() {
               <CardTitle className="text-lg">Результат</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {isLoading && !(decodedResult as DecodedResultV1)?.requiresPassword ? (
+              {isLoading && !(decodedResult)?.requiresPassword ? (
                   <div className="flex justify-center items-center p-6">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
@@ -257,7 +266,7 @@ export function DecoderTab() {
                     </div>
                   )}
 
-                  {(decodedResult as DecodedResultV1)?.requiresPassword && !(decodedResult as DecodedResultV1)?.text && (
+                  {decodedResult?.requiresPassword && !decodedResult?.text && (
                     <div className="space-y-3">
                          <div className="relative">
                             <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

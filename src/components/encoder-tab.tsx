@@ -73,7 +73,7 @@ export function EncoderTab() {
       if (data.encodingType === 'v1') {
         sequence = textToDtmfSequence(data.text, addLog, data.password);
       } else {
-        sequence = textToVtpPacket(data.text, addLog);
+        sequence = textToVtpPacket(data.text, addLog, data.password);
       }
       setGeneratedSequence(sequence);
     } catch (error) {
@@ -280,24 +280,22 @@ export function EncoderTab() {
                 </FormItem>
               )}
             />
-            {form.watch('encodingType') === 'v1' && (
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Пароль (только для Варианта 1)</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <LockKeyhole className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input type="password" placeholder="Введите пароль для шифрования" {...field} className="pl-9"/>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Пароль (опционально)</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <LockKeyhole className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input type="password" placeholder="Введите пароль для шифрования" {...field} className="pl-9"/>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <Button type="submit" disabled={isLoading} className="w-full">
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Закодировать сообщение

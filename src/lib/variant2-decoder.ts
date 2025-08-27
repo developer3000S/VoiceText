@@ -1,11 +1,7 @@
 
-import { decodeDtmfFromAudio } from './dtmf-decoder';
+import { decodeDtmfFromAudio, DecodedResult as DtmfResult } from './dtmf-decoder';
 
-export interface DecodedResult {
-    text: string | null;
-    error?: string;
-    requiresPassword?: false;
-}
+export interface DecodedResult extends DtmfResult {}
 
 // --- CRC-8 Calculation ---
 // Polynomial: x^8 + x^2 + x + 1 => 0x07
@@ -35,23 +31,16 @@ function hexToBytes(hex: string): Uint8Array {
 
 
 // --- Main decoding function ---
-export async function decodeVtpFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): Promise<DecodedResult> {
+export async function decodeVtpFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): Promise<DecodedResult> {
     try {
-        const dtmfResult = await decodeDtmfFromAudio(blob, addLog);
+        const dtmfResult = await decodeDtmfFromAudio(blob, addLog, password, true); // isV2Hex = true
         
-        if (!dtmfResult.extractedTones || dtmfResult.extractedTones.length < 3) { // *, payload, #
-            return { text: null, error: 'Последовательность DTMF слишком короткая для пакета V2.' };
-        }
-
-        const sequence = dtmfResult.extractedTones;
-        addLog(`(V2) Получена DTMF последовательность: ${sequence.join(',')}`);
-
-        // 1. Check for Start (*) and End (#) markers
-        if (sequence[0] !== '*' || sequence[sequence.length - 1] !== '#') {
-            return { text: null, error: 'Отсутствуют маркеры начала (*) или конца (#) пакета V2.' };
+        if (!dtmfResult.text) {
+             return { ...dtmfResult, text: null };
         }
         
-        const payloadHex = sequence.slice(1, -1).join('');
+        // dtmfResult.text now contains the decrypted hex payload
+        const payloadHex = dtmfResult.text;
         addLog(`(V2) Полезная нагрузка (HEX): ${payloadHex}`);
 
         if (payloadHex.length % 2 !== 0) {
@@ -96,11 +85,11 @@ export async function decodeVtpFromAudio(blob: Blob, addLog: (message: string, t
         // 4. Decode text
         const decodedText = new TextDecoder('utf-8').decode(dataBytes);
 
-        return { text: decodedText };
+        return { ...dtmfResult, text: decodedText };
 
     } catch (error) {
         const err = `Критическая ошибка декодирования V2: ${(error as Error).message}`;
         addLog(err, 'error');
-        return { text: null, error: err };
+        return { text: null, error: err, requiresPassword: false };
     }
 }

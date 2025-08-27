@@ -3,9 +3,9 @@ import * as Tone from 'tone';
 
 const TONE_DURATION = 0.05; 
 const PAUSE_DURATION = 0.025; 
-const PREAMBLE_SEQUENCE = '1,0,1,0,1,0'; // Добавлена преамбула для синхронизации
+const PREAMBLE_SEQUENCE = '1,0,1,0,1,0'; // Preamble for synchronization
 
-// --- Шифрование ---
+// --- Encryption ---
 function xorEncryptDecrypt(text: string, key: string): string {
     let result = '';
     for (let i = 0; i < text.length; i++) {
@@ -14,7 +14,7 @@ function xorEncryptDecrypt(text: string, key: string): string {
     return result;
 }
 
-// Unicode-совместимое кодирование в Base64
+// Unicode-compatible Base64 encoding
 function toBase64(str: string): string {
     try {
         const encoder = new TextEncoder();
@@ -30,7 +30,7 @@ function toBase64(str: string): string {
     }
 }
 
-// Unicode-совместимое декодирование из Base64
+// Unicode-compatible Base64 decoding
 function fromBase64(base64: string): string {
     try {
         const binary_string = atob(base64);
@@ -48,10 +48,10 @@ function fromBase64(base64: string): string {
 
 
 export const DTMF_FREQUENCIES: { [key: string]: [number, number] } = {
-  '1': [697, 1209], '2': [697, 1336], '3': [697, 1477],
-  '4': [770, 1209], '5': [770, 1336], '6': [770, 1477],
-  '7': [852, 1209], '8': [852, 1336], '9': [852, 1477],
-  '*': [941, 1209], '0': [941, 1336], '#': [941, 1477],
+  '1': [697, 1209], '2': [697, 1336], '3': [697, 1477], 'A': [697, 1633],
+  '4': [770, 1209], '5': [770, 1336], '6': [770, 1477], 'B': [770, 1633],
+  '7': [852, 1209], '8': [852, 1336], '9': [852, 1477], 'C': [852, 1633],
+  '*': [941, 1209], '0': [941, 1336], '#': [941, 1477], 'D': [941, 1633],
 };
 
 
@@ -64,20 +64,20 @@ export const COMPACT_CHAR_MAP: { [key: string]: string } = {
   'а': '53', 'б': '54', 'в': '55', 'г': '56', 'д': '57', 'е': '58', 'ё': '59', 'ж': '60', 'з': '61', 'и': '62', 'й': '63',
   'к': '64', 'л': '65', 'м': '66', 'н': '67', 'о': '68', 'п': '69', 'р': '70', 'с': '71', 'т': '72', 'у': '73',
   'ф': '74', 'х': '75', 'ц': '76', 'ч': '77', 'ш': '78', 'щ': '79', 'ъ': '80', 'ы': '81', 'ь': '82', 'э': '83', 'ю': '84', 'я': '85',
-  'A': '20', 'B': '22', 'C': '38', 'E': '25', 'H': '34', 'I': '29', 'K': '31', 'M': '33', 'O': '35', 'P': '37', 'T': '39', 'X': '42', 'Y': '40', // Latin lookalikes
+  // For V2, we also need Hex characters
+  'A': '86', 'B': '87', 'C': '88', 'D': '89', 'E': '90', 'F': '91',
 };
 
 
 export const REVERSE_CHAR_MAP: { [key: string]: string } = Object.entries(COMPACT_CHAR_MAP).reduce((acc, [key, value]) => {
-    // Avoid overwriting for latin lookalikes, first one (Cyrillic) wins.
     if (!acc[value]) {
        acc[value] = key;
     }
     return acc;
-}, {} as { [key: string]: string });
+}, {} as { [key:string]: string });
 
 
-export function textToDtmfSequence(text: string, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): string {
+export function textToDtmfSequence(text: string, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string, isV2Hex: boolean = false): string {
     let payloadSequence: string[] = [];
     const isEncrypted = password && password.length > 0;
     
@@ -92,15 +92,21 @@ export function textToDtmfSequence(text: string, addLog: (message: string, type?
     addLog(`Начало кодирования: "${processedText}"`);
     
     for (const char of processedText) {
-        // For encrypted base64 text, or any character not in our map, use a fallback
-        if (isEncrypted || !COMPACT_CHAR_MAP[char]) {
-            const charCode = char.charCodeAt(0);
-            // Prefix with '09' to indicate it's a char code, not from the map
-            const dtmfCode = '09' + charCode.toString().padStart(3, '0');
-            payloadSequence.push(...dtmfCode.split(''));
+        let code: string | undefined;
+        if (isV2Hex) {
+            // For V2, text is already hex-encoded. 'A'-'F' map directly, '0'-'9' map directly.
+            code = char.toUpperCase();
         } else {
-             payloadSequence.push(...(COMPACT_CHAR_MAP[char] || '').split(''));
+            // For V1, use the compact map or fallback for unicode
+            code = COMPACT_CHAR_MAP[char];
+            if (!code) {
+                const charCode = char.charCodeAt(0);
+                const dtmfCode = '09' + charCode.toString().padStart(3, '0');
+                payloadSequence.push(...dtmfCode.split(''));
+                continue;
+            }
         }
+        payloadSequence.push(...(code || '').split(''));
     }
     
     // Header: Preamble + * + (0 for unencrypted, 1 for encrypted) + payload + #
@@ -110,7 +116,7 @@ export function textToDtmfSequence(text: string, addLog: (message: string, type?
     return finalSequence;
 }
 
-export function dtmfToText(sequence: string[], isEncrypted: boolean, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): string | null {
+export function dtmfToText(sequence: string[], isEncrypted: boolean, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string, isV2Hex: boolean = false): string | null {
     addLog(`Декодирование последовательности: [${sequence.join(',')}]`);
     
     if (isEncrypted && (!password || password.length === 0)) {
@@ -119,29 +125,34 @@ export function dtmfToText(sequence: string[], isEncrypted: boolean, addLog: (me
     }
 
     let decodedText = '';
-    let i = 0;
-    while(i < sequence.length) {
-        const pair = sequence[i] + (sequence[i+1] || '');
-        
-        if (pair === '09') { // Fallback char code detected
-             if (i + 4 >= sequence.length) {
-                addLog(`Обнаружен код символа, но данных не хватает.`, 'error');
-                break;
+    
+    if (isV2Hex) {
+        decodedText = sequence.join('');
+    } else {
+        let i = 0;
+        while(i < sequence.length) {
+            const pair = sequence[i] + (sequence[i+1] || '');
+            
+            if (pair === '09') { // Fallback char code detected
+                 if (i + 4 >= sequence.length) {
+                    addLog(`Обнаружен код символа, но данных не хватает.`, 'error');
+                    break;
+                }
+                const code = sequence[i+2] + sequence[i+3] + sequence[i+4];
+                const charCode = parseInt(code, 10);
+                if (!isNaN(charCode)) {
+                    decodedText += String.fromCharCode(charCode);
+                }
+                i += 5; // consumed 5 digits
+            } else { // Standard compact map
+                const char = REVERSE_CHAR_MAP[pair];
+                if (char) {
+                    decodedText += char;
+                } else {
+                    addLog(`Неверная кодовая пара '${pair}', пропускается.`, 'warning');
+                }
+                i += 2; // consumed 2 digits
             }
-            const code = sequence[i+2] + sequence[i+3] + sequence[i+4];
-            const charCode = parseInt(code, 10);
-            if (!isNaN(charCode)) {
-                decodedText += String.fromCharCode(charCode);
-            }
-            i += 5; // consumed 5 digits
-        } else { // Standard compact map
-            const char = REVERSE_CHAR_MAP[pair];
-            if (char) {
-                decodedText += char;
-            } else {
-                addLog(`Неверная кодовая пара '${pair}', пропускается.`, 'warning');
-            }
-            i += 2; // consumed 2 digits
         }
     }
     
