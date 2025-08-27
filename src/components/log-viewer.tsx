@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -65,10 +66,14 @@ export function LogViewer() {
               {logs.map((log) => (
                 <div key={log.id} className="font-mono text-sm flex items-start">
                   <span className="text-muted-foreground mr-2">[{log.timestamp}]</span>
-                  <span className={`mr-2 font-bold ${log.type === 'error' ? 'text-destructive' : 'text-primary'}`}>
+                  <span className={`mr-2 font-bold ${
+                    log.type === 'error' ? 'text-destructive' 
+                    : log.type === 'warning' ? 'text-yellow-600' 
+                    : 'text-primary'
+                  }`}>
                     [{log.type.toUpperCase()}]
                   </span>
-                  <p className="break-all flex-1">{log.message}</p>
+                  <p className="break-all flex-1 text-foreground/80">{log.message}</p>
                 </div>
               ))}
             </div>

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +19,9 @@ export function VoiceTextApp() {
           <CardHeader className="text-center">
             <div className="flex items-center justify-center gap-3">
               <AudioWaveform className="h-8 w-8 text-primary" />
-              <CardTitle className="text-3xl font-bold">Голосовой Текст</CardTitle>
+              <CardTitle className="text-3xl">
+                <span className="font-normal">Голосовой</span> <span className="font-bold">Текст</span>
+              </CardTitle>
             </div>
             <CardDescription>
               Передавайте текст во время голосовых вызовов с помощью тонов DTMF.
