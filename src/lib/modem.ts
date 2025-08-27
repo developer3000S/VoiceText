@@ -205,16 +205,23 @@ export class Modem {
         let maxVal = -1;
         let maxIndex = -1;
 
+        // Iterate over the data to find the peak
         for (let i = 0; i < dataArray.length; i++) {
-            if (dataArray[i] > maxVal && dataArray[i] > 100) { // Threshold
+            if (dataArray[i] > maxVal) {
                 maxVal = dataArray[i];
                 maxIndex = i;
             }
         }
+        
+        // Convert the index to a frequency
+        const frequency = maxIndex * (this.audioContext.sampleRate / this.analyser.fftSize);
 
-        if (maxIndex === -1) return null;
+        // Check if the detected peak is strong enough and within a reasonable range to be a signal
+        if (maxVal > 50 && frequency > 500) {
+            return frequency;
+        }
 
-        return maxIndex * (this.audioContext.sampleRate / this.analyser.fftSize);
+        return null;
     }
     
     private async listenForTone(targetFreq: number, timeout: number): Promise<boolean> {
