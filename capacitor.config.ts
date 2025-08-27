@@ -13,6 +13,10 @@ const config: CapacitorConfig = {
         alias: 'microphone',
         name: 'android.permission.RECORD_AUDIO',
       },
+      {
+        alias: 'internet',
+        name: 'android.permission.INTERNET',
+      }
     ],
   },
 };
