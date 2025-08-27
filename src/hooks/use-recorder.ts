@@ -16,16 +16,6 @@ export const useRecorder = () => {
 
     const checkNativePermission = async (): Promise<boolean> => {
         try {
-            const { value: status } = await VoiceRecorder.getAudioRecordingPermissionStatus();
-            return status === 'granted';
-        } catch (error) {
-            console.error("Ошибка проверки разрешений (native):", error);
-            return false;
-        }
-    };
-    
-    const requestNativePermission = async (): Promise<boolean> => {
-        try {
             const result = await VoiceRecorder.requestAudioRecordingPermission();
             if (!result) {
                  toast({ variant: "destructive", title: "Доступ к микрофону запрещен" });
@@ -38,10 +28,7 @@ export const useRecorder = () => {
     };
 
     const startNativeRecording = async () => {
-        let hasPermission = await checkNativePermission();
-        if (!hasPermission) {
-            hasPermission = await requestNativePermission();
-        }
+        const hasPermission = await checkNativePermission();
         if (!hasPermission) return;
 
         try {
