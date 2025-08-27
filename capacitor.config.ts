@@ -27,7 +27,7 @@ const config: CapacitorConfig = {
       {
         alias: 'audio_setting',
         name: 'android.permission.MODIFY_AUDIO_SETTINGS'
-      }
+      },
       {
         alias: 'storage_read',
         name: 'android.permission.READ_EXTERNAL_STORAGE',

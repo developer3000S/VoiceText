@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Wand2, FileText } from 'lucide-react';
 import { renderDtmfSequenceToAudioBuffer } from '@/lib/dtmf';
 import { useLog } from '@/context/log-context';
-import { decodeDtmfFromAudio } from '@/lib/dtmf-decoder';
+import { decodeDtmfFromAudio, DecodedResult } from '@/lib/dtmf-decoder';
 import { bufferToWave } from '@/lib/wav';
 
 
@@ -41,13 +41,13 @@ export function ManualDecoderTab() {
       const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
       
       addLog('Аудио сгенерировано, запуск локального декодирования...');
-      const text = await decodeDtmfFromAudio(wavBlob, addLog);
+      const result: DecodedResult = await decodeDtmfFromAudio(wavBlob, addLog);
      
-       if (text !== null) {
-        setDecodedText(text);
-        addLog(`Ручное декодирование успешно. Результат: "${text}"`);
+       if (result.text !== null) {
+        setDecodedText(result.text);
+        addLog(`Ручное декодирование успешно. Результат: "${result.text}"`);
       } else {
-        const errorMsg = 'Не удалось распознать DTMF тоны в аудио или сообщение неполное (отсутствует стоп-символ #).';
+        const errorMsg = result.error || 'Не удалось распознать DTMF тоны в аудио или сообщение неполное (отсутствует стоп-символ #).';
         toast({
           variant: 'destructive',
           title: 'Ошибка декодирования',
