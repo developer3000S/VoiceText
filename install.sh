@@ -1,8 +1,8 @@
 # Теперь, чтобы создать APK, вам нужно будет выполнить следующие шаги уже на вашем компьютере:
 #git commit -a
-git commit -m "Добавлены изменения"
-git add .
-git pull
+#git commit -m "Добавлены изменения"
+#git add .
+#git pull
 
 # Очистите кэш npm: 
 npm cache clean --force
