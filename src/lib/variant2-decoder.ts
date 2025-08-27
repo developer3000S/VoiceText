@@ -14,7 +14,7 @@ const FREQ_1 = 2000;
 const POSTAMBLE_FREQ = 1500;
 
 const FREQ_THRESHOLD = 50;
-const GOERTZEL_THRESHOLD = 1e8; // Adjusted threshold
+const GOERTZEL_THRESHOLD = 1e7; // Lowered threshold
 
 export interface DecodedResult {
     text: string | null;

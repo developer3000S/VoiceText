@@ -32,7 +32,7 @@ export function VoiceTextApp() {
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="encoder">Кодировщик</TabsTrigger>
                 <TabsTrigger value="decoder">Декодер</TabsTrigger>
-                <TabsTrigger value="manual">DTMF вручную</TabsTrigger>
+                <TabsTrigger value="manual">Вручную</TabsTrigger>
               </TabsList>
               <TabsContent value="encoder">
                 <EncoderTab />
