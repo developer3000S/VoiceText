@@ -23,12 +23,13 @@ const STOP_BIT = 1;
 
 export class Modem {
     private state: ModemState = 'idle';
-    private audioContext!: AudioContext;
+    public audioContext!: AudioContext;
     private analyser!: AnalyserNode;
     private microphoneStream: MediaStream | null = null;
     private synth: Tone.Synth | null = null;
     private gainNode: GainNode | null = null;
     private inputSource: AudioNode | null = null;
+    private oscillator: Tone.Oscillator | null = null;
 
     public onStateChange: (newState: ModemState) => void;
     public onDataReceived: (data: string) => void;
@@ -63,7 +64,6 @@ export class Modem {
     async initialize() {
         if (this.audioContext && this.audioContext.state === 'running') return;
         await Tone.start();
-        // Each modem instance needs its own AudioContext to avoid conflicts.
         this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         Tone.setContext(this.audioContext);
 
@@ -73,17 +73,19 @@ export class Modem {
         this.gainNode = this.audioContext.createGain();
         this.gainNode.connect(this.audioContext.destination);
         
-        this.synth = new Tone.Synth().connect(new Tone.Gain(0.5).connect(this.gainNode));
+        this.synth = new Tone.Synth().connect(new Tone.Gain(0.5));
+        this.oscillator = new Tone.Oscillator(440, "sine").toDestination();
+        this.synth.connect(this.gainNode);
 
         this.log('Модем инициализирован');
     }
 
     private async ensureMicInput() {
-       if (!this.microphoneStream) {
+       if (!this.inputSource) {
             try {
                 this.microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const source = this.audioContext.createMediaStreamSource(this.microphoneStream);
-                this.connectInput(source);
+                this.connectInput(source, this.audioContext);
                 this.log('Вход с микрофона активирован.');
             } catch (error) {
                 this.log('Ошибка доступа к микрофону', 'error');
@@ -93,18 +95,32 @@ export class Modem {
         }
     }
 
-    // This method is for test mode to connect the output of another modem to this one's input.
-    connectInput(source: AudioNode, partner?: Modem) {
-        this.inputSource = source;
-        this.inputSource.connect(this.analyser);
-        if (partner) {
-            this.partnerModem = partner;
+    connectInput(source: AudioNode, destContext: AudioContext) {
+        if (destContext.state === 'closed') {
+             this.log('Cannot connect to a closed audio context.', 'error');
+             return;
         }
-        this.log(`Вход соединен с другим модемом`);
+        if(this.audioContext.state === 'closed'){
+            this.log('Source audio context is closed, cannot connect.', 'error');
+            return;
+        }
+        // Instead of connecting directly, we check if contexts are different.
+        // This is crucial for the test tab.
+        if (this.audioContext !== destContext) {
+            // For the test tab, we directly connect the gain node of the source
+            // modem to the analyser of the destination modem.
+            this.gainNode?.connect(this.analyser);
+        } else {
+             this.inputSource = source;
+             this.inputSource.connect(this.analyser);
+        }
+
+        this.log(`Вход соединен`);
     }
 
     disconnectInput() {
         this.inputSource?.disconnect();
+        this.gainNode?.disconnect(); // Disconnect gain node as well
         this.inputSource = null;
         this.partnerModem = null;
         this.log('Вход отсоединен.');
@@ -182,23 +198,20 @@ export class Modem {
             const charCode = char.charCodeAt(0);
             this.log(`Отправка символа '${char}' (0x${charCode.toString(16)})`);
             
-            // 1. Start Bit
             await this.playBit(START_BIT);
 
-            // 2. Data Bits (LSB first)
             for (let i = 0; i < 8; i++) {
                 const bit = (charCode >> i) & 1;
                 await this.playBit(bit);
             }
 
-            // 3. Stop Bit
             await this.playBit(STOP_BIT);
         }
     }
 
     private startListeningForData() {
         if (this.analysisFrameId) return;
-
+        this.log('Обнаружено начало передачи данных');
         let bitBuffer: number[] = [];
         let lastBitTime = 0;
         let isReceivingByte = false;
@@ -207,45 +220,40 @@ export class Modem {
             if (this.state !== 'connected') return;
 
             this.analysisFrameId = requestAnimationFrame(processFrame);
-            const freq = this.detectFrequency();
             const now = performance.now();
             
-            // No frequency detected, could be end of transmission
-            if (!freq) {
-                if (isReceivingByte && (now - lastBitTime > BIT_RECEIVE_TIMEOUT_MS)) {
-                    this.log(`Таймаут при приеме битов, буфер сброшен: [${bitBuffer.join('')}]`, 'warning');
-                    bitBuffer = [];
-                    isReceivingByte = false;
-                }
+            if (isReceivingByte && (now - lastBitTime > BIT_RECEIVE_TIMEOUT_MS)) {
+                this.log(`Таймаут при приеме битов, буфер сброшен: [${bitBuffer.join('')}]`, 'warning');
+                bitBuffer = [];
+                isReceivingByte = false;
                 return;
             }
 
+            const freq = this.detectFrequency();
+            if (!freq) return;
+
             const bit = this.frequencyToBit(freq);
-            if (bit === null) return; // Not a data frequency
+            if (bit === null) return;
 
             if (!isReceivingByte) {
-                // Look for a start bit
                 if (bit === START_BIT) {
-                    this.log('Обнаружен стартовый бит, начало приема байта...');
                     isReceivingByte = true;
                     bitBuffer = [];
                     lastBitTime = now;
                 }
-            } else { // Already receiving a byte
+            } else { 
                 if (now - lastBitTime > (BIT_DURATION * 1000 * 0.8)) {
                     lastBitTime = now;
                     bitBuffer.push(bit);
 
-                    // Byte fully received (8 data bits + 1 stop bit)
                     if (bitBuffer.length === 9) {
-                        const stopBit = bitBuffer.pop(); // Remove stop bit
+                        const stopBit = bitBuffer.pop(); 
                         if (stopBit !== STOP_BIT) {
                             this.log(`Ошибка: неверный стоповый бит. Получено: ${stopBit}`, 'error');
                         } else {
-                            // LSB first, so we don't need to reverse
-                            const charCode = parseInt(bitBuffer.join(''), 2);
-                            const char = String.fromCharCode(charCode);
-                            this.log(`Принят байт 0x${charCode.toString(16)}, символ '${char}'`);
+                            const byteValue = parseInt(bitBuffer.reverse().join(''), 2);
+                            const char = String.fromCharCode(byteValue);
+                            this.log(`Принят байт 0x${byteValue.toString(16)}, символ '${char}'`);
                             this.onDataReceived(char);
                         }
                         isReceivingByte = false;
@@ -274,6 +282,7 @@ export class Modem {
         if (this.state === 'idle') return;
 
         this.stopListeningForData();
+        this.oscillator?.stop();
         this.synth?.triggerRelease();
         
         if (this.microphoneStream) {
@@ -281,13 +290,12 @@ export class Modem {
             this.microphoneStream = null;
         }
         
-        // If in a test pair, hang up the partner too
         if (this.partnerModem && this.partnerModem.state !== 'idle') {
             this.partnerModem.hangup();
         }
-
-        if (this.audioContext.state !== 'closed') {
-           this.audioContext.close();
+        
+        if (this.audioContext && this.audioContext.state !== 'closed') {
+           this.audioContext.close().catch(e => this.log(`Ошибка при закрытии AudioContext: ${e}`, 'error'));
         }
 
         this.setState('idle');
@@ -309,10 +317,9 @@ export class Modem {
             }
         }
         
-        // Lowered threshold and added frequency range check
         if (maxVal > 50) { 
             const frequency = maxIndex * (this.audioContext.sampleRate / this.analyser.fftSize);
-            if (frequency > 500) { // Ignore low-frequency noise
+            if (frequency > 500) { 
                 return frequency;
             }
         }
@@ -332,7 +339,7 @@ export class Modem {
             
             const check = () => {
                 if (this.state === 'idle' || this.state === 'error') {
-                    cancelAnimationFrame(frameId);
+                    if (frameId) cancelAnimationFrame(frameId);
                     resolve(false);
                     return;
                 }

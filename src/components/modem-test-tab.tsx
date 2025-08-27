@@ -28,14 +28,11 @@ const ModemInstance = ({ id, modem, isConnected }: { id: string, modem: Modem, i
     
     const startCalling = async () => {
         if (!isConnected) return;
-        // Re-initialize to get a fresh AudioContext
-        await modem.initialize();
         modem.start(ModemMode.CALL);
     };
 
     const startAnswering = async () => {
         if (!isConnected) return;
-        await modem.initialize();
         modem.start(ModemMode.ANSWER);
     };
     
@@ -96,22 +93,23 @@ export function ModemTestTab() {
   const { addLog } = useLog();
   const [isConnected, setIsConnected] = useState(false);
 
-  // Each modem gets its own instance. useMemo ensures they are not recreated on every render.
   const modemA = useMemo(() => new Modem(() => {}, () => {}, addLog, 'A'), [addLog]);
   const modemB = useMemo(() => new Modem(() => {}, () => {}, addLog, 'B'), [addLog]);
 
   const connectModems = useCallback(async () => {
     addLog('Соединение виртуальных модемов...');
-    // Initialize both modems which creates their AudioContexts and output nodes
+    // Initialize both modems. This creates their audio contexts and output nodes.
     await modemA.initialize();
     await modemB.initialize();
+
     const outputA = modemA.getOutputNode();
     const outputB = modemB.getOutputNode();
 
     if (outputA && outputB) {
-        // Connect A's output to B's input, and vice versa
-        modemA.connectInput(outputB, modemB);
-        modemB.connectInput(outputA, modemA);
+        // To connect nodes from different contexts, you must pass the destination context.
+        // Connect A's output to B's input analyzer, and vice versa.
+        modemA.connectInput(outputB, modemB.audioContext);
+        modemB.connectInput(outputA, modemA.audioContext);
         setIsConnected(true);
         addLog('Модемы успешно соединены.');
     } else {
@@ -121,9 +119,8 @@ export function ModemTestTab() {
 
   const disconnectModems = useCallback(() => {
     addLog('Разъединение виртуальных модемов...');
-    // hangup() on one will trigger hangup on the partner if connected
     modemA.hangup(); 
-    modemB.hangup(); // Call on both to be safe
+    modemB.hangup(); 
     
     modemA.disconnectInput();
     modemB.disconnectInput();
@@ -132,7 +129,6 @@ export function ModemTestTab() {
     addLog('Модемы разъединены.');
   }, [addLog, modemA, modemB]);
   
-  // Cleanup on component unmount
   useEffect(() => {
       return () => {
           modemA.hangup();
