@@ -4,11 +4,11 @@
 
 import { REVERSE_CHAR_MAP } from './dtmf';
 
-const TONE_DURATION_MS = 100;
-const PAUSE_DURATION_MS = 50; 
+const TONE_DURATION_MS = 50; // (уменьшено со 100)
+const PAUSE_DURATION_MS = 25; // (уменьшено с 50)
 const THRESHOLD = 100; 
 const SAMPLE_RATE = 44100;
-const DEBOUNCE_MS = 150; // Ignore same tone detection within this time
+const DEBOUNCE_MS = 75; // Ignore same tone detection within this time (уменьшено со 150)
 
 const DTMF_FREQUENCIES: { [key: string]: [number, number] } = {
   '1': [697, 1209], '2': [697, 1336], '3': [697, 1477], 'A': [697, 1633],

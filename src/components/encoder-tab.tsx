@@ -203,35 +203,22 @@ export function EncoderTab() {
                     </>
                   )}
                 </Button>
-                 <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="w-full">
-                           <Button 
-                             onClick={handleSave} 
-                             disabled={isSaving || isPlaying || isNative} 
-                             className="w-full" 
-                             variant="outline"
-                           >
-                            {isSaving ? (
-                              <>
-                                <CircleDashed className="mr-2 h-4 w-4 animate-spin" /> Сохранение...
-                              </>
-                            ) : (
-                              <>
-                                <Download className="mr-2 h-4 w-4" /> Сохранить файл
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      </TooltipTrigger>
-                      {isNative && (
-                         <TooltipContent>
-                           <p>Сохранение файлов на мобильных устройствах недоступно.</p>
-                         </TooltipContent>
-                      )}
-                    </Tooltip>
-                 </TooltipProvider>
+                <Button 
+                  onClick={handleSave} 
+                  disabled={isSaving || isPlaying} 
+                  className="w-full" 
+                  variant="outline"
+                >
+                 {isSaving ? (
+                   <>
+                     <CircleDashed className="mr-2 h-4 w-4 animate-spin" /> Сохранение...
+                   </>
+                 ) : (
+                   <>
+                     <Download className="mr-2 h-4 w-4" /> Сохранить файл
+                   </>
+                 )}
+               </Button>
               </div>
             </CardContent>
           </Card>

@@ -15,8 +15,8 @@ export const DTMF_FREQUENCIES: { [key: string]: [number, number] } = {
   '#': [941, 1477],
 };
 
-const TONE_DURATION = 0.1; // seconds
-const PAUSE_DURATION = 0.05; // seconds
+const TONE_DURATION = 0.05; // seconds (уменьшено с 0.1)
+const PAUSE_DURATION = 0.025; // seconds (уменьшено с 0.05)
 
 export const CHAR_MAP: { [key: string]: string } = {
     // Service symbols: 00-09
