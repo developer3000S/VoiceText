@@ -9,6 +9,7 @@ import { Textarea } from './ui/textarea';
 import { Modem, ModemMode, ModemState } from '@/lib/modem';
 import { PhoneCall, PhoneIncoming, Send, XCircle, Link, Unlink, Loader2 } from 'lucide-react';
 import { Separator } from './ui/separator';
+import * as Tone from 'tone';
 
 const ModemInstance = ({ id, modem, isConnected }: { id: string, modem: Modem, isConnected: boolean }) => {
     const [modemState, setModemState] = useState<ModemState>('idle');
@@ -28,13 +29,11 @@ const ModemInstance = ({ id, modem, isConnected }: { id: string, modem: Modem, i
     
     const startCalling = async () => {
         if (!isConnected) return;
-        await modem.initialize();
         modem.start(ModemMode.CALL);
     };
 
     const startAnswering = async () => {
         if (!isConnected) return;
-        await modem.initialize();
         modem.start(ModemMode.ANSWER);
     };
     
@@ -95,35 +94,48 @@ export function ModemTestTab() {
   const { addLog } = useLog();
   const [isConnected, setIsConnected] = useState(false);
 
-  const modemA = useMemo(() => new Modem(() => {}, () => {}, addLog, 'A'), [addLog]);
-  const modemB = useMemo(() => new Modem(() => {}, () => {}, addLog, 'B'), [addLog]);
+  const modemA = useMemo(() => new Modem((s) => {}, (d) => {}, addLog, 'A'), [addLog]);
+  const modemB = useMemo(() => new Modem((s) => {}, (d) => {}, addLog, 'B'), [addLog]);
 
   const connectModems = useCallback(async () => {
     addLog('Соединение виртуальных модемов...');
     
-    // In test mode, we don't need real microphone access.
-    // We will simulate it by connecting the gain nodes directly.
-    await modemA.initialize(false); // Initialize without ensuring mic
-    await modemB.initialize(false); // Initialize without ensuring mic
+    // Create one shared audio context for both modems.
+    await Tone.start();
+    const sharedContext = new Tone.Context();
+    await sharedContext.resume();
 
-    modemA.connectInput(modemB.gainNode!, modemB);
-    modemB.connectInput(modemA.gainNode!, modemA);
-    
-    setIsConnected(true);
-    addLog('Модемы успешно соединены.');
+    // Initialize both modems with the same context and without mic input.
+    await modemA.initialize({ context: sharedContext, ensureMic: false });
+    await modemB.initialize({ context: sharedContext, ensureMic: false });
+
+    // Connect the output of each modem to the input of the other.
+    if (modemA.gainNode && modemB.gainNode) {
+        modemA.connectInput(modemB.gainNode, modemB);
+        modemB.connectInput(modemA.gainNode, modemA);
+        
+        setIsConnected(true);
+        addLog('Модемы успешно соединены.');
+    } else {
+        addLog('Ошибка: не удалось инициализировать аудио узлы для соединения.', 'error');
+    }
+
   }, [addLog, modemA, modemB]);
 
   const disconnectModems = useCallback(() => {
+    if (!isConnected) return;
     addLog('Разъединение виртуальных модемов...');
     
-    modemA.disconnectInput(modemB.gainNode!);
-    modemB.disconnectInput(modemA.gainNode!);
+    if (modemA.gainNode && modemB.gainNode) {
+      modemA.disconnectInput(modemB.gainNode);
+      modemB.disconnectInput(modemA.gainNode);
+    }
 
-    modemA.hangup(); 
+    modemA.hangup(); // This will also hangup the partner modem
     
     setIsConnected(false);
     addLog('Модемы разъединены.');
-  }, [addLog, modemA, modemB]);
+  }, [addLog, modemA, modemB, isConnected]);
   
   useEffect(() => {
       // Cleanup on component unmount

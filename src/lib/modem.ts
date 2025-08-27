@@ -64,15 +64,21 @@ export class Modem {
         this.onStateChange(newState);
     }
 
-    async initialize(ensureMic: boolean = true) {
+    async initialize(options: { context?: Tone.Context, ensureMic?: boolean } = {}) {
+        const { context, ensureMic = true } = options;
+
         if (this.audioContext && this.audioContext.state === 'running') {
-             if (ensureMic) await this.ensureMicInput();
-             return;
-        };
-        
-        await Tone.start();
-        this.audioContext = new Tone.Context();
-        await this.audioContext.resume();
+            if (ensureMic) await this.ensureMicInput();
+            return;
+        }
+
+        if (context) {
+            this.audioContext = context;
+        } else {
+            await Tone.start();
+            this.audioContext = new Tone.Context();
+            await this.audioContext.resume();
+        }
 
         this.analyser = new Tone.FFT({
             size: 2048,
@@ -130,18 +136,18 @@ export class Modem {
     async start(mode: ModemMode) {
         if (this.state !== 'idle' && this.state !== 'error') return;
         
-        // Initialization is now handled by the calling component (e.g., ModemTab)
-        // This ensures permissions are requested before starting.
         if (!this.audioContext || this.audioContext.state !== 'running') {
             this.log('Модем не инициализирован. Вызовите initialize() перед start().', 'error');
             this.setState('error');
             return;
         }
         
-        // For real use, ensureMicInput should have been called during initialization.
-        // For testing, inputSource is set via connectInput.
         if(!this.inputSource) {
-            await this.ensureMicInput();
+            try {
+                await this.ensureMicInput();
+            } catch (e) {
+                return; // Stop if mic access failed
+            }
         }
 
 
@@ -164,7 +170,6 @@ export class Modem {
             });
         }
         
-        // Set a timeout for the handshake
         if(this.handshakeTimeout) clearTimeout(this.handshakeTimeout);
         this.handshakeTimeout = setTimeout(() => {
             if (this.state === 'calling' || this.state === 'answering') {
@@ -183,7 +188,6 @@ export class Modem {
             this.log('Handshake: Отправка сигнала готовности (carrier)');
             await this.playTone(CARRIER_FREQ, 1000);
         } else {
-             // Caller waits a bit to ensure answerer is ready
              await new Promise(res => setTimeout(res, 500));
         }
 
@@ -240,7 +244,6 @@ export class Modem {
             
             const now = performance.now();
             
-            // Timeout check for byte reception
             if (isReceivingByte && (now - lastBitTime > BIT_RECEIVE_TIMEOUT_MS)) {
                 this.log(`Таймаут при приеме битов, буфер сброшен: [${bitBuffer.join('')}]`, 'warning');
                 bitBuffer = [];
@@ -248,7 +251,6 @@ export class Modem {
                 return;
             }
 
-            // Debounce bits - only register a new bit if enough time has passed
             if (now - lastBitTime < BIT_DURATION * 1000 * 0.8) {
                 return;
             }
@@ -268,7 +270,6 @@ export class Modem {
                     if (stopBit !== STOP_BIT) {
                         this.log(`Ошибка: неверный стоповый бит. Получено: ${stopBit}`, 'error');
                     } else {
-                        // LSB first, so we don't need to reverse
                         const byteValue = bitBuffer.reduce((acc, b, i) => acc | (b << i), 0);
                         const char = String.fromCharCode(byteValue);
                         this.log(`Принят байт 0x${byteValue.toString(16)}, символ '${char}'`);
@@ -325,7 +326,6 @@ export class Modem {
         let maxVal = -Infinity;
         let maxIndex = -1;
 
-        // Find the peak in the FFT
         for (let i = 0; i < values.length; i++) {
             if (values[i] > maxVal) {
                 maxVal = values[i];
@@ -333,15 +333,12 @@ export class Modem {
             }
         }
         
-        // A simple threshold to ignore noise
         if (maxVal < -70) { 
             return null;
         }
 
-        // Convert the FFT bin index to a frequency
         const frequency = maxIndex * (this.audioContext.sampleRate / this.analyser.size);
         
-        // Ignore low-frequency noise
         if (frequency > 500) { 
             return frequency;
         }
