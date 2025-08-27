@@ -5,17 +5,19 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Mic, Square, FileText, Upload, Speaker, PlayCircle, CircleDashed } from 'lucide-react';
+import { Loader2, Mic, Square, FileText, Upload, Speaker, PlayCircle, CircleDashed, LockKeyhole, KeyRound } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
-import { decodeDtmfFromAudio } from '@/lib/dtmf-decoder';
+import { decodeDtmfFromAudio, DecodedResult } from '@/lib/dtmf-decoder';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
+import { Input } from './ui/input';
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
-  const [decodedText, setDecodedText] = useState<string | null>(null);
+  const [decodedResult, setDecodedResult] = useState<DecodedResult | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [isListening, setIsListening] = useState(false);
+  const [password, setPassword] = useState('');
 
   const { toast } = useToast();
   const { isRecording, startRecording, stopRecording } = useRecorder();
@@ -24,27 +26,38 @@ export function DecoderTab() {
   const { addLog } = useLog();
 
   const cleanup = () => {
-    setDecodedText(null);
+    setDecodedResult(null);
     setRecordedBlob(null);
+    setPassword('');
     if (audioRef.current) {
       URL.revokeObjectURL(audioRef.current.src);
       audioRef.current = null;
     }
   };
 
-  const handleDecode = useCallback(async (blob: Blob, source: string) => {
-    cleanup();
-    setIsLoading(true);
-    setRecordedBlob(blob);
+  const handleDecode = useCallback(async (blob: Blob, source: string, decryptPassword?: string) => {
+    if (!decryptPassword) {
+      // This is the initial decode call
+      cleanup();
+      setIsLoading(true);
+      setRecordedBlob(blob);
+    } else {
+      // This is a re-decode with a password
+      setIsLoading(true);
+    }
+    
     addLog(`Запуск локального декодирования аудио из источника: ${source}`);
     try {
-      const text = await decodeDtmfFromAudio(blob, addLog);
-      if (text !== null) {
-        setDecodedText(text);
-        addLog(`Декодирование успешно. Результат: "${text}"`);
+      const result = await decodeDtmfFromAudio(blob, addLog, decryptPassword);
+      setDecodedResult(result);
+
+      if (result.requiresPassword && !result.text) {
+         addLog('Сообщение зашифровано. Требуется пароль.', 'warning');
+         toast({ title: 'Требуется пароль', description: 'Это сообщение зашифровано. Введите пароль для расшифровки.' });
+      } else if (result.text !== null) {
+        addLog(`Декодирование успешно. Результат: "${result.text}"`);
       } else {
-        const errorMsg = 'Не удалось распознать DTMF тоны в аудио или сообщение неполное (отсутствует старт * или стоп-символ #).';
-        setDecodedText(null);
+        const errorMsg = result.error || 'Не удалось распознать DTMF тоны или сообщение неполное.';
         addLog(errorMsg, 'error');
         toast({
           variant: 'destructive',
@@ -59,7 +72,7 @@ export function DecoderTab() {
         title: 'Ошибка',
         description: 'Не удалось обработать аудиофайл.',
       });
-      setDecodedText(null);
+      setDecodedResult(null);
       addLog(`Ошибка обработки аудио: ${errorMessage}`, 'error');
     }
     setIsLoading(false);
@@ -122,6 +135,14 @@ export function DecoderTab() {
     audio.play();
   };
 
+  const handleDecrypt = () => {
+    if (recordedBlob && password) {
+        handleDecode(recordedBlob, 'расшифровка', password);
+    } else {
+        toast({ variant: 'destructive', title: 'Ошибка', description: 'Нет записи для расшифровки или не введен пароль.' });
+    }
+  }
+
   return (
     <Card className="border-0 shadow-none">
       <CardHeader>
@@ -167,7 +188,7 @@ export function DecoderTab() {
             accept="audio/wav,audio/mp3,audio/webm,audio/ogg,audio/*"
         />
 
-        {(isLoading || decodedText !== null || recordedBlob) && (
+        {(isLoading || decodedResult !== null || recordedBlob) && (
           <Card className="bg-muted/50 mt-4">
             <CardHeader>
               <CardTitle className="text-lg">Результат</CardTitle>
@@ -179,12 +200,32 @@ export function DecoderTab() {
                   </div>
               ) : (
                 <>
-                  {decodedText !== null && (
+                  {decodedResult?.text !== null && decodedResult?.text !== undefined && (
                     <div className="flex items-start space-x-3 bg-background p-4 rounded-md">
                         <FileText className="h-5 w-5 mt-1 text-primary"/>
-                        <p className="font-mono text-left flex-1 break-words">{decodedText || 'Сообщение не найдено'}</p>
+                        <p className="font-mono text-left flex-1 break-words">{decodedResult.text || 'Сообщение не найдено'}</p>
                     </div>
                   )}
+
+                  {decodedResult?.requiresPassword && !decodedResult?.text && (
+                    <div className="space-y-3">
+                         <div className="relative">
+                            <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input 
+                                type="password" 
+                                placeholder="Пароль для расшифровки" 
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="pl-9"
+                            />
+                        </div>
+                        <Button onClick={handleDecrypt} className="w-full" disabled={!password}>
+                            <LockKeyhole className="mr-2 h-4 w-4" />
+                            Расшифровать
+                        </Button>
+                    </div>
+                  )}
+
                   {recordedBlob && (
                     <Button onClick={handlePlayRecording} disabled={isListening} className="w-full" variant="secondary">
                        {isListening ? (

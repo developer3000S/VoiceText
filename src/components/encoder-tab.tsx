@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, PlayCircle, Volume2, Download, CircleDashed, PlusCircle } from 'lucide-react';
+import { Loader2, PlayCircle, Volume2, Download, CircleDashed, PlusCircle, LockKeyhole } from 'lucide-react';
 import { playDtmfSequence, renderDtmfSequenceToAudioBuffer, textToDtmfSequence } from '@/lib/dtmf';
 import { bufferToWave } from '@/lib/wav';
 import * as Tone from 'tone';
@@ -23,10 +23,12 @@ import {
 import { useLog } from '@/context/log-context';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Input } from './ui/input';
 
 
 const FormSchema = z.object({
   text: z.string().min(1, "Сообщение не может быть пустым.").max(100, "Сообще-ние слишком длинное."),
+  password: z.string().optional(),
 });
 
 const templates = ["Привет!", "Пока!", "Как дела?"];
@@ -59,7 +61,7 @@ export function EncoderTab() {
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
-    defaultValues: { text: '' },
+    defaultValues: { text: '', password: '' },
   });
   
   useEffect(() => {
@@ -80,7 +82,7 @@ export function EncoderTab() {
     setDtmfSequence(null);
     
     try {
-      const sequence = textToDtmfSequence(data.text, addLog);
+      const sequence = textToDtmfSequence(data.text, addLog, data.password);
       setDtmfSequence(sequence);
     } catch (error) {
        const errorMessage = error instanceof Error ? error.message : String(error);
@@ -125,7 +127,6 @@ export function EncoderTab() {
     try {
         const base64Data = await blobToBase64(wavBlob);
 
-        // 1. Проверить разрешения
         let permStatus = await Filesystem.checkPermissions();
         addLog(`Статус разрешений на запись: ${permStatus.publicStorage}`);
 
@@ -135,7 +136,6 @@ export function EncoderTab() {
         }
 
         if (permStatus.publicStorage === 'granted') {
-             // 2. Сохранить в общую папку Download
             const result = await Filesystem.writeFile({
                 path: fileName,
                 data: base64Data,
@@ -144,12 +144,11 @@ export function EncoderTab() {
             addLog(`Файл успешно сохранен в папку Download. Путь: ${result.uri}`);
             toast({ title: "Успешно", description: `Файл сохранен в Download/${fileName}` });
         } else {
-            // 3. Фоллбэк: сохранить во внутреннее хранилище
             addLog('Разрешение на запись в общую папку не получено. Сохраняю во внутреннее хранилище.', 'warning');
              const result = await Filesystem.writeFile({
                 path: fileName,
                 data: base64Data,
-                directory: Directory.Data, // Внутреннее хранилище, доступно только приложению
+                directory: Directory.Data,
             });
             addLog(`Файл сохранен во внутреннее хранилище. Путь: ${result.uri}`);
             toast({ variant: "default", title: "Сохранено", description: `Файл сохранен во внутреннем хранилище.` });
@@ -175,7 +174,6 @@ export function EncoderTab() {
       if (isNative) {
         await handleSaveNative(wavBlob);
       } else {
-        // Стандартный веб-метод для скачивания
         const url = URL.createObjectURL(wavBlob);
         const a = document.createElement('a');
         a.href = url;
@@ -241,6 +239,22 @@ export function EncoderTab() {
                   </div>
                   <FormControl>
                     <Textarea placeholder="Введите ваше секретное сообщение..." {...field} onClick={startAudioContext} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Пароль (необязательно)</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <LockKeyhole className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input type="password" placeholder="Введите пароль для шифрования" {...field} className="pl-9"/>
+                    </div>
                   </FormControl>
                   <FormMessage />
                 </FormItem>

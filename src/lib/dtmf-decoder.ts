@@ -1,14 +1,17 @@
 
-// Implements the Goertzel algorithm for DTMF tone detection.
-// This is a local, offline alternative to AI-based decoding.
+import { dtmfToText } from './dtmf';
 
-import { REVERSE_CHAR_MAP } from './dtmf';
-
-const TONE_DURATION_MS = 50; // (уменьшено со 100)
-const PAUSE_DURATION_MS = 25; // (уменьшено с 50)
+const TONE_DURATION_MS = 50; 
+const PAUSE_DURATION_MS = 25; 
 const THRESHOLD = 100; 
 const SAMPLE_RATE = 44100;
-const DEBOUNCE_MS = 75; // Ignore same tone detection within this time (уменьшено со 150)
+const DEBOUNCE_MS = 75; 
+
+export interface DecodedResult {
+    text: string | null;
+    requiresPassword: boolean;
+    error?: string;
+}
 
 const DTMF_FREQUENCIES: { [key: string]: [number, number] } = {
   '1': [697, 1209], '2': [697, 1336], '3': [697, 1477], 'A': [697, 1633],
@@ -82,58 +85,51 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
     return DTMF_MAP[`${detectedLowFreq},${detectedHighFreq}`] || null;
 }
 
-function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): string | null {
+function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): DecodedResult {
     addLog(`Запуск декодирования последовательности: [${sequence.join(',')}]`);
 
     const startIdx = sequence.indexOf('*');
     if (startIdx === -1) {
-        addLog('Стартовый символ * не найден. Декодирование невозможно.', 'error');
-        return null;
+        const err = 'Стартовый символ * не найден. Декодирование невозможно.';
+        addLog(err, 'error');
+        return { text: null, requiresPassword: false, error: err };
     }
     addLog(`Стартовый символ * найден на позиции ${startIdx}.`);
+    
+    // Check for header (encryption flag)
+    if (sequence.length <= startIdx + 1) {
+        const err = 'Последовательность слишком короткая, отсутствует заголовок.';
+        addLog(err, 'error');
+        return { text: null, requiresPassword: false, error: err };
+    }
 
-    let payload = sequence.slice(startIdx + 1);
+    const encryptionFlag = sequence[startIdx + 1];
+    const isEncrypted = encryptionFlag === '1';
+    addLog(`Флаг шифрования: ${encryptionFlag}. Сообщение ${isEncrypted ? 'зашифровано' : 'не зашифровано'}.`);
+
+    let payload = sequence.slice(startIdx + 2); // Skip * and encryption flag
 
     const endIdx = payload.lastIndexOf('#');
     if (endIdx === -1) {
-        addLog('Стоповый символ # не найден. Сообщение может быть неполным.', 'warning');
-        return null; // Strict mode: if no end symbol, message is invalid
-    } else {
-        addLog(`Стоповый символ # найден. Обрезаем пакет данных.`);
-        payload = payload.slice(0, endIdx);
+        const err = 'Стоповый символ # не найден. Сообщение неполное.';
+        addLog(err, 'warning');
+        return { text: null, requiresPassword: false, error: err };
     }
     
-     if (payload.some(tone => tone === '*' || tone === '#')) {
-        addLog('Внутри пакета данных обнаружены недопустимые служебные символы (* или #). Декодирование прервано.', 'error');
-        return null;
-    }
-    
+    payload = payload.slice(0, endIdx);
     addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
     
-    if (payload.length % 2 !== 0) {
-        addLog(`Длина пакета данных нечетная (${payload.length}). Сообщение повреждено. Декодирование прервано.`, 'error');
-        return null;
+    if (isEncrypted && !password) {
+        return { text: null, requiresPassword: true };
     }
 
-    if (payload.length === 0) {
-        addLog(`Пакет данных пуст.`, 'warning');
-        return '';
+    const text = dtmfToText(payload, isEncrypted, addLog, password);
+    
+    if (text === null && isEncrypted) {
+         return { text: null, requiresPassword: true, error: 'Ошибка расшифровки. Неверный пароль?' };
     }
     
-    let result = '';
-    for (let i = 0; i < payload.length; i += 2) {
-        const codePair = payload[i] + payload[i + 1];
-        const char = REVERSE_CHAR_MAP[codePair];
-        if (char) {
-            result += char;
-            addLog(`Пара '${codePair}' -> Символ '${char}'. Текущий результат: "${result}"`);
-        } else {
-            addLog(`Неизвестная кодовая пара '${codePair}', пропускается.`, 'warning');
-        }
-    }
-    
-    addLog(`Декодирование завершено. Итоговый результат: "${result}"`);
-    return result;
+    return { text, requiresPassword: isEncrypted };
 }
 
 
@@ -149,7 +145,7 @@ async function getAudioContext(blob: Blob): Promise<AudioBuffer> {
      }
 }
 
-export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): Promise<string | null> {
+export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): Promise<DecodedResult> {
     try {
         const originalAudioBuffer = await getAudioContext(blob);
         addLog(`Аудиофайл успешно загружен. Длительность: ${originalAudioBuffer.duration.toFixed(2)}с, Частота: ${originalAudioBuffer.sampleRate}Гц`);
@@ -204,9 +200,9 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
                     addLog(`Обнаружен тон: '${currentTone}' на ${currentTime.toFixed(0)}мс`);
                     lastTone = currentTone;
                     lastToneTime = currentTime;
-                    i += toneSamples; // Jump forward by a full tone duration
+                    i += toneSamples;
                 } else {
-                    i += stepSamples; // Move forward by a smaller step
+                    i += stepSamples;
                 }
             } else {
                 lastTone = null;
@@ -214,11 +210,12 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
             }
         }
         
-        const decoded = decodeSequence(detectedTones, addLog);
+        const decoded = decodeSequence(detectedTones, addLog, password);
         return decoded;
 
     } catch(error) {
-         addLog(`Критическая ошибка при декодировании аудио: ${(error as Error).message}`, 'error');
-         return null;
+         const err = `Критическая ошибка при декодировании аудио: ${(error as Error).message}`;
+         addLog(err, 'error');
+         return { text: null, requiresPassword: false, error: err };
     }
 }
