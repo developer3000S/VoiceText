@@ -38,9 +38,20 @@ class Goertzel {
         this.s2 = this.s1;
         this.s1 = s0;
     }
+    
+    processChunk(chunk: Float32Array) {
+        for (const sample of chunk) {
+            this.process(sample);
+        }
+    }
 
     getPower(): number {
         return this.s2 * this.s2 + this.s1 * this.s1 - this.coeff * this.s1 * this.s2;
+    }
+    
+    reset() {
+        this.s1 = 0;
+        this.s2 = 0;
     }
 }
 
@@ -81,8 +92,11 @@ function findPreamble(data: Float32Array, addLog: (msg: string, type?: any) => v
     for (let i = 0; i < data.length - preambleChunkSize; i += preambleChunkSize) {
         const chunk = data.slice(i, i + preambleChunkSize);
         
-        goertzel0.process(chunk[0]); // Simplified processing for speed
-        goertzel1.process(chunk[0]);
+        goertzel0.reset();
+        goertzel1.reset();
+        
+        goertzel0.processChunk(chunk);
+        goertzel1.processChunk(chunk);
 
         const power0 = goertzel0.getPower();
         const power1 = goertzel1.getPower();
@@ -129,8 +143,11 @@ function readBits(data: Float32Array, startIndex: number, bitCount: number, addL
         }
         const chunk = data.slice(chunkStart, chunkStart + BIT_DURATION_SAMPLES);
         
-        goertzel0.process(chunk[0]);
-        goertzel1.process(chunk[0]);
+        goertzel0.reset();
+        goertzel1.reset();
+
+        goertzel0.processChunk(chunk);
+        goertzel1.processChunk(chunk);
 
         const power0 = goertzel0.getPower();
         const power1 = goertzel1.getPower();
