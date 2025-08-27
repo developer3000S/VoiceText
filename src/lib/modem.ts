@@ -1,5 +1,6 @@
 
 import * as Tone from 'tone';
+import { AudioNode } from 'tone';
 
 export type ModemState = 'idle' | 'calling' | 'answering' | 'handshake' | 'connected' | 'error';
 export enum ModemMode { CALL, ANSWER }
@@ -14,7 +15,7 @@ const BIT_0_FREQ = 1070;   // Space
 // Timing
 const BIT_DURATION = 0.05; // 50ms per bit => 20 baud
 const HANDSHAKE_TIMEOUT_MS = 5000;
-const BIT_RECEIVE_TIMEOUT_MS = BIT_DURATION * 1000 * 2; // Timeout for waiting for the next bit in a byte
+const BIT_RECEIVE_TIMEOUT_MS = BIT_DURATION * 1000 * 3; // Timeout for waiting for the next bit in a byte
 
 // Protocol bits
 const START_BIT = 0;
@@ -28,7 +29,7 @@ export class Modem {
     private microphoneStream: MediaStream | null = null;
     private synth: Tone.Synth | null = null;
     public gainNode: Tone.Gain | null = null;
-    private inputSource: MediaStreamAudioSourceNode | null = null;
+    private inputSource: AudioNode | null = null;
 
     public onStateChange: (newState: ModemState) => void;
     public onDataReceived: (data: string) => void;
@@ -63,16 +64,28 @@ export class Modem {
         this.onStateChange(newState);
     }
 
-    async initialize() {
-        if (this.audioContext && this.audioContext.state === 'running') return;
+    async initialize(ensureMic: boolean = true) {
+        if (this.audioContext && this.audioContext.state === 'running') {
+             if (ensureMic) await this.ensureMicInput();
+             return;
+        };
         
         await Tone.start();
-        this.audioContext = Tone.getContext();
+        this.audioContext = new Tone.Context();
+        await this.audioContext.resume();
 
-        this.analyser = new Tone.FFT(2048);
-        this.synth = new Tone.Synth().toDestination();
+        this.analyser = new Tone.FFT({
+            size: 2048,
+            context: this.audioContext,
+        });
+
+        this.synth = new Tone.Synth({ context: this.audioContext }).toDestination();
         this.gainNode = new Tone.Gain(1.0).connect(this.analyser);
         this.synth.connect(this.gainNode);
+
+        if (ensureMic) {
+            await this.ensureMicInput();
+        }
 
         this.log('Модем инициализирован');
     }
@@ -93,11 +106,13 @@ export class Modem {
     }
     
     // This method is for test mode to connect the output of this modem to the input of another.
-    connectInput(sourceNode: Tone.Gain) {
-       if (this.gainNode) {
-          sourceNode.connect(this.analyser);
-          this.log(`Вход соединен с другим модемом`);
-       }
+    connectInput(source: AudioNode, partner?: Modem) {
+        this.inputSource = source;
+        this.inputSource.connect(this.analyser);
+        if (partner) {
+            this.partnerModem = partner;
+        }
+        this.log(`Вход соединен с другим модемом`);
     }
 
     disconnectInput(sourceNode: Tone.Gain) {
@@ -109,19 +124,26 @@ export class Modem {
               this.log('Ошибка при отсоединении входа, возможно уже отсоединен', 'warning');
             }
         }
+        this.partnerModem = null;
     }
 
     async start(mode: ModemMode) {
         if (this.state !== 'idle' && this.state !== 'error') return;
         
-        await this.initialize();
-        if (this.audioContext.state !== 'running') {
-             await this.audioContext.resume();
+        // Initialization is now handled by the calling component (e.g., ModemTab)
+        // This ensures permissions are requested before starting.
+        if (!this.audioContext || this.audioContext.state !== 'running') {
+            this.log('Модем не инициализирован. Вызовите initialize() перед start().', 'error');
+            this.setState('error');
+            return;
         }
-
-        if (!this.inputSource) {
+        
+        // For real use, ensureMicInput should have been called during initialization.
+        // For testing, inputSource is set via connectInput.
+        if(!this.inputSource) {
             await this.ensureMicInput();
         }
+
 
         this.mode = mode;
         
@@ -193,7 +215,7 @@ export class Modem {
             await this.playBit(START_BIT);
 
             for (let i = 0; i < 8; i++) {
-                const bit = (charCode >> i) & 1;
+                const bit = (charCode >> i) & 1; // LSB first
                 await this.playBit(bit);
             }
 
@@ -234,6 +256,7 @@ export class Modem {
 
             if (!isReceivingByte) {
                 if (bit === START_BIT) {
+                    this.log('Обнаружено начало передачи данных');
                     isReceivingByte = true;
                     bitBuffer = [];
                 }
@@ -297,7 +320,7 @@ export class Modem {
         if (!this.analyser) return null;
         
         const values = this.analyser.getValue();
-        if (!values || values.length === 0) return null;
+        if (!(values instanceof Float32Array) || values.length === 0) return null;
 
         let maxVal = -Infinity;
         let maxIndex = -1;

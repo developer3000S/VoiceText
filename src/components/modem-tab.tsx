@@ -37,30 +37,41 @@ export function ModemTab() {
   const [modemState, setModemState] = useState<ModemState>('idle');
   const [receivedText, setReceivedText] = useState('');
   const [textToSend, setTextToSend] = useState('');
-  const [isInitialized, setIsInitialized] = useState(false);
 
-  const initializeModem = useCallback(async () => {
-    if (isInitialized) return true;
+  const checkAndRequestPermission = async (): Promise<boolean> => {
     try {
-      await modem.initialize();
-      setIsInitialized(true);
+      // Check for permission by trying to get a stream.
+      // This will trigger the browser's permission prompt if not already granted.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // We don't need the stream itself, just to know we can get it.
+      // Stop the tracks immediately to turn off the microphone indicator.
+      stream.getTracks().forEach(track => track.stop());
       return true;
     } catch (error) {
-      const msg = `Ошибка инициализации модема: ${(error as Error).message}`;
-      addLog(msg, 'error');
-      toast({ variant: 'destructive', title: 'Ошибка', description: msg });
+      addLog('Доступ к микрофону запрещен. Пожалуйста, разрешите доступ в настройках браузера.', 'error');
+      toast({
+        variant: 'destructive',
+        title: 'Доступ к микрофону запрещен',
+        description: 'Необходимо разрешить доступ к микрофону для работы модема.',
+      });
       return false;
     }
-  }, [modem, addLog, toast, isInitialized]);
-  
+  };
+
   const startAnswering = async () => {
-    const ready = await initializeModem();
-    if (ready) modem.start(ModemMode.ANSWER);
+    const hasPermission = await checkAndRequestPermission();
+    if (!hasPermission) return;
+    
+    await modem.initialize();
+    modem.start(ModemMode.ANSWER);
   };
 
   const startCalling = async () => {
-    const ready = await initializeModem();
-    if (ready) modem.start(ModemMode.CALL);
+    const hasPermission = await checkAndRequestPermission();
+    if (!hasPermission) return;
+
+    await modem.initialize();
+    modem.start(ModemMode.CALL);
   };
 
   const handleHangup = () => {

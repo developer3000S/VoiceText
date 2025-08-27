@@ -101,32 +101,25 @@ export function ModemTestTab() {
   const connectModems = useCallback(async () => {
     addLog('Соединение виртуальных модемов...');
     
-    await modemA.initialize();
-    await modemB.initialize();
+    // In test mode, we don't need real microphone access.
+    // We will simulate it by connecting the gain nodes directly.
+    await modemA.initialize(false); // Initialize without ensuring mic
+    await modemB.initialize(false); // Initialize without ensuring mic
 
-    const outputA = modemA.gainNode;
-    const outputB = modemB.gainNode;
-
-    if (outputA && outputB) {
-        // Connect A's output to B's input analyzer, and vice versa.
-        modemB.connectInput(outputA);
-        modemA.connectInput(outputB);
-        
-        setIsConnected(true);
-        addLog('Модемы успешно соединены.');
-    } else {
-        addLog('Не удалось получить выходные узлы модемов.', 'error');
-    }
+    modemA.connectInput(modemB.gainNode!, modemB);
+    modemB.connectInput(modemA.gainNode!, modemA);
+    
+    setIsConnected(true);
+    addLog('Модемы успешно соединены.');
   }, [addLog, modemA, modemB]);
 
   const disconnectModems = useCallback(() => {
     addLog('Разъединение виртуальных модемов...');
     
-    if (modemA.gainNode) modemA.disconnectInput(modemB.gainNode!);
-    if (modemB.gainNode) modemB.disconnectInput(modemA.gainNode!);
+    modemA.disconnectInput(modemB.gainNode!);
+    modemB.disconnectInput(modemA.gainNode!);
 
     modemA.hangup(); 
-    modemB.hangup(); 
     
     setIsConnected(false);
     addLog('Модемы разъединены.');
