@@ -8,29 +8,21 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mic, Square, FileText, Upload, Speaker, PlayCircle, CircleDashed, LockKeyhole, KeyRound } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
-import { decodeDtmfFromAudio, DecodedResult, decodeSequenceFromTones } from '@/lib/dtmf-decoder';
+import { decodeDtmfFromAudio, DecodedResult as DecodedResultV1, decodeSequenceFromTones } from '@/lib/dtmf-decoder';
+import { decodeVtpFromAudio, DecodedResult as DecodedResultV2 } from '@/lib/variant2-decoder';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Input } from './ui/input';
-
-// Helper function to convert base64 to Blob
-function base64ToBlob(base64: string, mimeType: string): Blob {
-    const byteCharacters = atob(base64);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    return new Blob([byteArray], { type: mimeType });
-}
-
+import { RadioGroup, RadioGroupItem } from './ui/radio-group';
+import { Label } from './ui/label';
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
-  const [decodedResult, setDecodedResult] = useState<DecodedResult | null>(null);
+  const [decodedResult, setDecodedResult] = useState<DecodedResultV1 | DecodedResultV2 | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [extractedTones, setExtractedTones] = useState<string[] | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [password, setPassword] = useState('');
+  const [decodingType, setDecodingType] = useState<'v1' | 'v2'>('v1');
 
   const { toast } = useToast();
   const { isRecording, startRecording, stopRecording } = useRecorder();
@@ -54,23 +46,28 @@ export function DecoderTab() {
     setIsLoading(true);
     setRecordedBlob(blob);
     
-    addLog(`Запуск локального декодирования аудио из источника: ${source}`);
+    addLog(`Запуск локального декодирования (${decodingType}) аудио из источника: ${source}`);
     try {
-      const result = await decodeDtmfFromAudio(blob, addLog);
-      
-      if (result.extractedTones) {
-        setExtractedTones(result.extractedTones);
+      let result;
+      if (decodingType === 'v1') {
+        result = await decodeDtmfFromAudio(blob, addLog);
+        if (result.extractedTones) {
+            setExtractedTones(result.extractedTones);
+        }
+        if (result.requiresPassword && !result.text) {
+            addLog('Сообщение зашифровано. Требуется пароль.', 'warning');
+            toast({ title: 'Требуется пароль', description: 'Это сообщение зашифровано. Введите пароль для расшифровки.' });
+        }
+      } else {
+        result = await decodeVtpFromAudio(blob, addLog);
       }
       
       setDecodedResult(result);
 
-      if (result.requiresPassword && !result.text) {
-         addLog('Сообщение зашифровано. Требуется пароль.', 'warning');
-         toast({ title: 'Требуется пароль', description: 'Это сообщение зашифровано. Введите пароль для расшифровки.' });
-      } else if (result.text !== null) {
+      if (result.text !== null && result.text !== undefined) {
         addLog(`Декодирование успешно. Результат: "${result.text}"`);
-      } else {
-        const errorMsg = result.error || 'Не удалось распознать DTMF тоны или сообщение неполное.';
+      } else if (!result.requiresPassword) {
+        const errorMsg = result.error || 'Не удалось распознать тоны или сообщение неполное.';
         addLog(errorMsg, 'error');
         toast({
           variant: 'destructive',
@@ -89,7 +86,7 @@ export function DecoderTab() {
       addLog(`Ошибка обработки аудио: ${errorMessage}`, 'error');
     }
     setIsLoading(false);
-  }, [toast, addLog]);
+  }, [toast, addLog, decodingType]);
   
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -174,16 +171,43 @@ export function DecoderTab() {
   return (
     <Card className="border-0 shadow-none">
       <CardHeader>
-        <CardTitle>Декодер DTMF в текст</CardTitle>
-        <CardDescription>Запишите или загрузите аудио с DTMF-тонами для декодирования в текст.</CardDescription>
+        <CardTitle>Декодер аудио в текст</CardTitle>
+        <CardDescription>Запишите или загрузите аудио с тонами для декодирования в текст.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
         
+        <RadioGroup
+          value={decodingType}
+          onValueChange={(value) => setDecodingType(value as 'v1' | 'v2')}
+          className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        >
+          <div>
+            <RadioGroupItem value="v1" id="r1" className="peer sr-only" />
+            <Label
+              htmlFor="r1"
+              className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"
+            >
+              <span>Вариант 1: DTMF</span>
+              <span className="text-xs text-muted-foreground mt-1">Быстрый, для простых сообщений</span>
+            </Label>
+          </div>
+          <div>
+            <RadioGroupItem value="v2" id="r2" className="peer sr-only" />
+            <Label
+              htmlFor="r2"
+              className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"
+            >
+               <span>Вариант 2: VTP</span>
+               <span className="text-xs text-muted-foreground mt-1">Надежный, с проверкой ошибок</span>
+            </Label>
+          </div>
+        </RadioGroup>
+
         <Alert variant="default" className="bg-primary/10 border-primary/20">
           <Speaker className="h-5 w-5 text-primary" />
           <AlertTitle className="font-semibold text-primary">Важная инструкция</AlertTitle>
           <AlertDescription>
-            Для записи DTMF-сигналов во время звонка, пожалуйста, включите **громкую связь** на телефоне, а затем начните запись в этом приложении.
+            Для записи сигналов во время звонка, пожалуйста, включите **громкую связь** на телефоне, а затем начните запись в этом приложении.
           </AlertDescription>
         </Alert>
 
@@ -222,7 +246,7 @@ export function DecoderTab() {
               <CardTitle className="text-lg">Результат</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {isLoading && !decodedResult?.requiresPassword ? (
+              {isLoading && !(decodedResult as DecodedResultV1)?.requiresPassword ? (
                   <div className="flex justify-center items-center p-6">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
@@ -235,7 +259,7 @@ export function DecoderTab() {
                     </div>
                   )}
 
-                  {decodedResult?.requiresPassword && !decodedResult?.text && (
+                  {(decodedResult as DecodedResultV1)?.requiresPassword && !(decodedResult as DecodedResultV1)?.text && (
                     <div className="space-y-3">
                          <div className="relative">
                             <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

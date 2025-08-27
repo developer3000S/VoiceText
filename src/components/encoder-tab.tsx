@@ -12,6 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlayCircle, Volume2, Download, CircleDashed, PlusCircle, LockKeyhole } from 'lucide-react';
 import { playDtmfSequence, renderDtmfSequenceToAudioBuffer, textToDtmfSequence } from '@/lib/dtmf';
+import { playVtpSequence, renderVtpSequenceToAudioBuffer, textToVtpPacket } from '@/lib/variant2-encoder';
 import { bufferToWave } from '@/lib/wav';
 import * as Tone from 'tone';
 import {
@@ -25,18 +26,20 @@ import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Toast as CapacitorToast } from '@capacitor/toast';
 import { Input } from './ui/input';
+import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 
 
 const FormSchema = z.object({
-  text: z.string().min(1, "Сообщение не может быть пустым.").max(100, "Сообще-ние слишком длинное."),
+  text: z.string().min(1, "Сообщение не может быть пустым.").max(255, "Сообщение слишком длинное (макс. 255 байт)."),
   password: z.string().optional(),
+  encodingType: z.enum(['v1', 'v2']),
 });
 
-const templates = ["Привет!", "Пока!", "Как дела?"];
+const templates = ["Привет!", "Как дела?", "Встречаемся в 15:00."];
 
 export function EncoderTab() {
   const [isLoading, setIsLoading] = useState(false);
-  const [dtmfSequence, setDtmfSequence] = useState<string | null>(null);
+  const [generatedSequence, setGeneratedSequence] = useState<string | number[] | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isNative, setIsNative] = useState(false);
@@ -45,7 +48,7 @@ export function EncoderTab() {
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
-    defaultValues: { text: '', password: '' },
+    defaultValues: { text: '', password: '', encodingType: 'v1' },
   });
   
   useEffect(() => {
@@ -63,11 +66,16 @@ export function EncoderTab() {
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     await startAudioContext(); 
     setIsLoading(true);
-    setDtmfSequence(null);
+    setGeneratedSequence(null);
     
     try {
-      const sequence = textToDtmfSequence(data.text, addLog, data.password);
-      setDtmfSequence(sequence);
+      if (data.encodingType === 'v1') {
+        const sequence = textToDtmfSequence(data.text, addLog, data.password);
+        setGeneratedSequence(sequence);
+      } else {
+        const packet = textToVtpPacket(data.text, addLog);
+        setGeneratedSequence(packet);
+      }
     } catch (error) {
        const errorMessage = error instanceof Error ? error.message : String(error);
        toast({
@@ -82,14 +90,19 @@ export function EncoderTab() {
   }
 
   async function handlePlay() {
-    if (!dtmfSequence) return;
+    if (!generatedSequence) return;
     
     await startAudioContext();
     
     setIsPlaying(true);
-    addLog('Воспроизведение DTMF последовательности...');
+    addLog('Воспроизведение последовательности...');
     try {
-      await playDtmfSequence(dtmfSequence);
+      const encodingType = form.getValues('encodingType');
+      if (encodingType === 'v1') {
+        await playDtmfSequence(generatedSequence as string);
+      } else {
+        await playVtpSequence(generatedSequence as number[]);
+      }
       addLog('Воспроизведение завершено.');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -111,13 +124,13 @@ export function EncoderTab() {
       reader.readAsDataURL(wavBlob);
       reader.onloadend = async () => {
         const base64Data = reader.result as string;
-        const fileName = `dtmf_sequence_${Date.now()}.wav`;
+        const fileName = `sequence_${Date.now()}.wav`;
 
         try {
             const result = await Filesystem.writeFile({
                 path: fileName,
                 data: base64Data,
-                directory: Directory.Download, // Пытаемся сохранить в публичную папку
+                directory: Directory.Download, 
             });
             addLog(`Файл успешно сохранен в папку Download: ${result.uri}`);
             await CapacitorToast.show({
@@ -155,7 +168,7 @@ export function EncoderTab() {
       const url = URL.createObjectURL(wavBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `dtmf_sequence_${Date.now()}.wav`;
+      a.download = `sequence_${Date.now()}.wav`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -164,11 +177,17 @@ export function EncoderTab() {
   }
 
   async function handleSave() {
-    if (!dtmfSequence) return;
+    if (!generatedSequence) return;
     setIsSaving(true);
     
     try {
-      const audioBuffer = await renderDtmfSequenceToAudioBuffer(dtmfSequence);
+      const encodingType = form.getValues('encodingType');
+      let audioBuffer: AudioBuffer;
+      if (encodingType === 'v1') {
+        audioBuffer = await renderDtmfSequenceToAudioBuffer(generatedSequence as string);
+      } else {
+        audioBuffer = await renderVtpSequenceToAudioBuffer(generatedSequence as number[]);
+      }
       const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
       
       if (isNative) {
@@ -194,12 +213,48 @@ export function EncoderTab() {
   return (
     <Card className="border-0 shadow-none">
       <CardHeader>
-        <CardTitle>Кодировщик текста в DTMF</CardTitle>
-        <CardDescription>Преобразуйте ваше текстовое сообщение в последовательность воспроизводимых тонов DTMF.</CardDescription>
+        <CardTitle>Кодировщик текста в аудио</CardTitle>
+        <CardDescription>Преобразуйте ваше текстовое сообщение в последовательность аудиотонов.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <FormField
+              control={form.control}
+              name="encodingType"
+              render={({ field }) => (
+                <FormItem className="space-y-3">
+                  <FormLabel>Выберите вариант кодирования</FormLabel>
+                  <FormControl>
+                    <RadioGroup
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                      className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                    >
+                      <FormItem className="flex items-center space-x-3 space-y-0">
+                        <FormControl>
+                          <RadioGroupItem value="v1" />
+                        </FormControl>
+                        <FormLabel className="font-normal flex flex-col">
+                          <span>Вариант 1: DTMF (быстро)</span>
+                          <span className="text-xs text-muted-foreground">Быстрая передача, подходит для простых сообщений.</span>
+                        </FormLabel>
+                      </FormItem>
+                      <FormItem className="flex items-center space-x-3 space-y-0">
+                        <FormControl>
+                          <RadioGroupItem value="v2" />
+                        </FormControl>
+                         <FormLabel className="font-normal flex flex-col">
+                          <span>Вариант 2: VTP (надежно)</span>
+                           <span className="text-xs text-muted-foreground">Пакетная передача с CRC, устойчива к шуму.</span>
+                        </FormLabel>
+                      </FormItem>
+                    </RadioGroup>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="text"
@@ -236,35 +291,39 @@ export function EncoderTab() {
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Пароль (необязательно)</FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <LockKeyhole className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input type="password" placeholder="Введите пароль для шифрования" {...field} className="pl-9"/>
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {form.watch('encodingType') === 'v1' && (
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Пароль (только для Варианта 1)</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <LockKeyhole className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input type="password" placeholder="Введите пароль для шифрования" {...field} className="pl-9"/>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <Button type="submit" disabled={isLoading} className="w-full">
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Закодировать сообщение
             </Button>
           </form>
         </Form>
-        {dtmfSequence && (
-          <Card className="bg-muted/50">
+        {generatedSequence && (
+          <Card className="bg-muted/50 mt-6">
             <CardHeader>
               <CardTitle className="text-lg">Закодированная последовательность</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="font-mono text-sm break-all bg-background p-3 rounded-md">{dtmfSequence}</p>
+              <p className="font-mono text-sm break-all bg-background p-3 rounded-md">
+                {Array.isArray(generatedSequence) ? generatedSequence.join('') : generatedSequence}
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Button onClick={handlePlay} disabled={isPlaying || isSaving} className="w-full" variant="secondary">
                   {isPlaying ? (
