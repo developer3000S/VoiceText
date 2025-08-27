@@ -15,73 +15,11 @@ import type { PermissionState } from '@capacitor/core';
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [decodedText, setDecodedText] = useState<string | null>(null);
-  const [microphonePermission, setMicrophonePermission] = useState<PermissionState>('prompt');
 
   const { toast } = useToast();
   const { isRecording, startRecording, stopRecording } = useRecorder();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addLog } = useLog();
-
-  const checkPermissions = useCallback(async () => {
-    if (!Capacitor.isPluginAvailable('Permissions')) {
-        addLog('Плагин разрешений недоступен, используется стандартный API браузера.', 'info');
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            stream.getTracks().forEach(track => track.stop());
-            setMicrophonePermission('granted');
-            addLog('Доступ к микрофону в браузере разрешен.', 'info');
-        } catch {
-            setMicrophonePermission('denied');
-            addLog('Доступ к микрофону в браузере запрещен.', 'warning');
-        }
-        return;
-    }
-
-    try {
-      addLog('Проверка разрешений на нативном устройстве...', 'info');
-      const { microphone } = await Capacitor.Plugins.Permissions.check();
-      setMicrophonePermission(microphone);
-      addLog(`Текущий статус разрешения: ${microphone}`, 'info');
-    } catch (error) {
-       const errorMessage = error instanceof Error ? error.message : String(error);
-       addLog(`Ошибка при проверке разрешений: ${errorMessage}`, 'error');
-    }
-  }, [addLog]);
-
-  useEffect(() => {
-    checkPermissions();
-  }, [checkPermissions]);
-
-  const requestPermissions = async () => {
-    if (Capacitor.isPluginAvailable('Permissions')) {
-        addLog('Запрос разрешения на использование микрофона...', 'info');
-        try {
-            const { microphone } = await Capacitor.Plugins.Permissions.request({
-                names: ['microphone']
-            });
-            setMicrophonePermission(microphone);
-
-            if (microphone === 'granted') {
-                addLog('Разрешение на микрофон было успешно получено.', 'info');
-                toast({ title: 'Доступ разрешен', description: 'Теперь вы можете использовать микрофон.'});
-            } else {
-                addLog('Пользователь отказал в доступе к микрофону.', 'warning');
-                toast({
-                    variant: 'destructive',
-                    title: 'Доступ запрещен',
-                    description: 'Для записи аудио необходимо разрешение на использование микрофона.',
-                });
-            }
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            addLog(`Ошибка при запросе разрешений: ${errorMessage}`, 'error');
-            toast({ variant: 'destructive', title: 'Ошибка разрешений', description: errorMessage });
-        }
-    } else {
-        // Fallback for web
-        await startRecording();
-    }
-  };
 
   const handleDecode = useCallback(async (blob: Blob, source: string) => {
     setIsLoading(true);
@@ -148,43 +86,26 @@ export function DecoderTab() {
         <CardDescription>Запишите или загрузите аудио с DTMF-тонами для декодирования в текст.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {microphonePermission !== 'granted' ? (
-             <Card className="border-primary/50 bg-primary/10 mt-4">
-                <CardHeader>
-                    <CardTitle className="text-lg text-primary">Требуется доступ к микрофону</CardTitle>
-                    <CardDescription className="text-foreground/80">
-                        Чтобы записывать аудио, приложению необходимо разрешение на использование микрофона.
-                    </CardDescription>
-                </CardHeader>
-                <CardFooter>
-                    <Button onClick={requestPermissions} className="w-full">
-                        <ShieldCheck className="mr-2 h-4 w-4" />
-                        Предоставить доступ
-                    </Button>
-                </CardFooter>
-            </Card>
-        ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Button 
-                    onClick={isRecording ? handleStopRecording : handleStartRecording} 
-                    className="w-full" 
-                    disabled={isLoading}
-                >
-                    {isRecording ? (
-                    <>
-                        <Square className="mr-2 h-4 w-4 animate-pulse fill-current" /> Остановить запись
-                    </>
-                    ) : (
-                    <>
-                        <Mic className="mr-2 h-4 w-4" /> Начать запись
-                    </>
-                    )}
-                </Button>
-                <Button onClick={handleUploadClick} variant="outline" className="w-full" disabled={isLoading}>
-                    <Upload className="mr-2 h-4 w-4" /> Загрузить файл
-                </Button>
-            </div>
-        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Button 
+                onClick={isRecording ? handleStopRecording : handleStartRecording} 
+                className="w-full" 
+                disabled={isLoading}
+            >
+                {isRecording ? (
+                <>
+                    <Square className="mr-2 h-4 w-4 animate-pulse fill-current" /> Остановить запись
+                </>
+                ) : (
+                <>
+                    <Mic className="mr-2 h-4 w-4" /> Начать запись
+                </>
+                )}
+            </Button>
+            <Button onClick={handleUploadClick} variant="outline" className="w-full" disabled={isLoading}>
+                <Upload className="mr-2 h-4 w-4" /> Загрузить файл
+            </Button>
+        </div>
 
         <input
             type="file"
