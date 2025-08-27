@@ -228,7 +228,7 @@ export class Modem {
     hangup() {
         this.stopListeningForData();
         this.oscillator?.stop();
-        this.synth?.release();
+        this.synth?.triggerRelease();
         
         if (this.microphoneStream) {
             this.microphoneStream.getTracks().forEach(track => track.stop());
