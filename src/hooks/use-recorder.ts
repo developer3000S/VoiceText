@@ -13,15 +13,9 @@ export const useRecorder = () => {
 
     const requestPermission = useCallback(async (): Promise<boolean> => {
         try {
-            // Запрашиваем доступ к микрофону. Этот вызов покажет системное окно.
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            // Сразу останавливаем треки, так как нам нужен только факт разрешения.
             stream.getTracks().forEach(track => track.stop());
             setHasPermission(true);
-            toast({
-                title: "Доступ получен",
-                description: "Разрешение на использование микрофона предоставлено.",
-            });
             return true;
         } catch (error) {
             console.error("Ошибка запроса разрешений:", error);
@@ -36,9 +30,9 @@ export const useRecorder = () => {
     }, [toast]);
 
     const startRecording = useCallback(async () => {
-        if (!hasPermission) {
-            const permissionGranted = await requestPermission();
-            if (!permissionGranted) return;
+        const permissionGranted = await requestPermission();
+        if (!permissionGranted) {
+            return;
         }
 
         try {
@@ -46,7 +40,6 @@ export const useRecorder = () => {
             setIsRecording(true);
             recordedChunksRef.current = [];
             
-            // Указываем кодек, чтобы повысить совместимость
             const options = { mimeType: 'audio/webm;codecs=opus' };
             const recorder = new MediaRecorder(stream, MediaRecorder.isTypeSupported(options.mimeType) ? options : undefined);
 
@@ -73,7 +66,7 @@ export const useRecorder = () => {
             });
             setIsRecording(false);
         }
-    }, [toast, hasPermission, requestPermission]);
+    }, [requestPermission, toast]);
     
     const stopRecording = useCallback(async (): Promise<Blob | null> => {
         if (!mediaRecorderRef.current || !isRecording) {
@@ -81,16 +74,18 @@ export const useRecorder = () => {
         }
 
         return new Promise((resolve) => {
-            mediaRecorderRef.current!.onstop = () => {
-                const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
-                const blob = new Blob(recordedChunksRef.current, { type: mimeType });
-                recordedChunksRef.current = [];
-                setIsRecording(false);
-                mediaRecorderRef.current = null;
-                resolve(blob);
-            };
+            if (mediaRecorderRef.current) {
+                mediaRecorderRef.current.onstop = () => {
+                    const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+                    const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+                    recordedChunksRef.current = [];
+                    setIsRecording(false);
+                    mediaRecorderRef.current = null;
+                    resolve(blob);
+                };
 
-            mediaRecorderRef.current!.stop();
+                mediaRecorderRef.current.stop();
+            }
         });
     }, [isRecording]);
 

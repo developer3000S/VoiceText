@@ -16,7 +16,7 @@ export function DecoderTab() {
   const [decodedText, setDecodedText] = useState<string | null>(null);
 
   const { toast } = useToast();
-  const { isRecording, startRecording, stopRecording, hasPermission, requestPermission } = useRecorder();
+  const { isRecording, startRecording, stopRecording } = useRecorder();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addLog } = useLog();
 
@@ -64,13 +64,8 @@ export function DecoderTab() {
   };
   
   const handleStartRecording = async () => {
-    const permissionGranted = await requestPermission();
-    if (permissionGranted) {
-        addLog('Разрешение на запись получено. Запись с микрофона начата...');
-        await startRecording();
-    } else {
-        addLog('В доступе к микрофону отказано.', 'error');
-    }
+      addLog('Запрос на начало записи...');
+      await startRecording();
   }
 
   const handleStopRecording = async () => {
