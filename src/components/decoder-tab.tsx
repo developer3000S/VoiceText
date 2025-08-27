@@ -9,13 +9,12 @@ import { Loader2, Mic, Square, FileText, Upload } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
 import { decodeDtmfFromAudio } from '@/lib/dtmf-decoder';
-import { Capacitor } from '@capacitor/core';
-import { Permissions } from '@capacitor/core/apis';
+import { Capacitor, PermissionState } from '@capacitor/core';
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [decodedText, setDecodedText] = useState<string | null>(null);
-  const [hasMicrophonePermission, setHasMicrophonePermission] = useState(false);
+  const [microphonePermission, setMicrophonePermission] = useState<PermissionState>('prompt');
   const [isPermissionChecked, setIsPermissionChecked] = useState(false);
 
   const { toast } = useToast();
@@ -23,44 +22,55 @@ export function DecoderTab() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addLog } = useLog();
 
-  const checkAndRequestPermissions = useCallback(async () => {
+  const checkAndRequestPermissions = useCallback(async (request: boolean = false) => {
     if (!Capacitor.isNativePlatform()) {
-      // On web, permission is handled by getUserMedia, so we assume it can be requested.
-      setHasMicrophonePermission(true);
-      setIsPermissionChecked(true);
-      return true;
+      try {
+        // For web, a simple query to see if it will prompt
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+        setMicrophonePermission('granted');
+        addLog('Доступ к микрофону в браузере разрешен.', 'info');
+        return true;
+      } catch {
+        setMicrophonePermission('denied');
+        addLog('Доступ к микрофону в браузере запрещен.', 'warning');
+        return false;
+      } finally {
+        setIsPermissionChecked(true);
+      }
     }
 
     try {
       addLog('Проверка разрешений на нативном устройстве...', 'info');
-      let permStatus = await Permissions.check({ alias: 'microphone' });
+      let permStatus = await Capacitor.checkPermissions({ name: 'microphone' });
 
-      if (permStatus.state === 'granted') {
-        setHasMicrophonePermission(true);
+      if (permStatus.microphone === 'granted') {
         addLog('Разрешение на микрофон уже предоставлено.', 'info');
+        setMicrophonePermission('granted');
         return true;
       }
 
-      if (permStatus.state === 'prompt' || permStatus.state === 'prompt-with-rationale') {
-        addLog('Разрешение еще не предоставлено, запрашиваем...', 'info');
-        permStatus = await Permissions.request({ alias: 'microphone' });
+      if (request) {
+        addLog('Запрос разрешения на использование микрофона...', 'info');
+        permStatus = await Capacitor.requestPermissions({ names: ['microphone'] });
+        setMicrophonePermission(permStatus.microphone);
+        
+        if (permStatus.microphone === 'granted') {
+          addLog('Разрешение на микрофон было успешно получено.', 'info');
+          return true;
+        } else {
+          addLog('Пользователь отказал в доступе к микрофону.', 'warning');
+          toast({
+            variant: 'destructive',
+            title: 'Доступ запрещен',
+            description: 'Для записи аудио необходимо разрешение на использование микрофона.',
+          });
+          return false;
+        }
       }
-
-      const permissionGranted = permStatus.state === 'granted';
-      setHasMicrophonePermission(permissionGranted);
       
-      if (permissionGranted) {
-        addLog('Разрешение на микрофон было успешно получено.', 'info');
-      } else {
-        addLog('Пользователь отказал в доступе к микрофону.', 'warning');
-        toast({
-          variant: 'destructive',
-          title: 'Доступ запрещен',
-          description: 'Для записи аудио необходимо разрешение на использование микрофона.',
-        });
-      }
-      
-      return permissionGranted;
+      setMicrophonePermission(permStatus.microphone);
+      return false;
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -68,12 +78,12 @@ export function DecoderTab() {
       toast({ variant: 'destructive', title: 'Ошибка разрешений', description: errorMessage });
       return false;
     } finally {
-      setIsPermissionChecked(true);
+        setIsPermissionChecked(true);
     }
   }, [addLog, toast]);
   
   useEffect(() => {
-    checkAndRequestPermissions();
+    checkAndRequestPermissions(false); // Initial check without prompt
   }, [checkAndRequestPermissions]);
 
 
@@ -121,8 +131,7 @@ export function DecoderTab() {
   };
   
   const handleStartRecording = async () => {
-    // Re-check permissions just in case user revoked them in settings
-    const permissionGranted = await checkAndRequestPermissions();
+    const permissionGranted = await checkAndRequestPermissions(true); // Request if not granted
     if(!permissionGranted) return;
     
     addLog('Запись с микрофона начата...');
@@ -164,7 +173,7 @@ export function DecoderTab() {
           <Button 
             onClick={isRecording ? handleStopRecording : handleStartRecording} 
             className="w-full" 
-            disabled={isLoading || !hasMicrophonePermission}
+            disabled={isLoading || microphonePermission === 'denied'}
           >
             {isRecording ? (
               <>
@@ -188,11 +197,11 @@ export function DecoderTab() {
           />
         </div>
         
-        {!hasMicrophonePermission && Capacitor.isNativePlatform() && (
+        {microphonePermission === 'denied' && (
             <Card className="border-destructive bg-destructive/10 mt-4">
                 <CardContent className="p-4 text-center text-destructive">
                    <p className="text-sm">
-                       Доступ к микрофону запрещен. Пожалуйста, предоставьте разрешение в настройках вашего устройства.
+                       Доступ к микрофону запрещен. Пожалуйста, предоставьте разрешение в настройках вашего устройства, чтобы использовать эту функцию.
                    </p>
                 </CardContent>
             </Card>

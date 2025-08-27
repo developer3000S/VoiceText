@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useLog } from '@/context/log-context';
 import { Capacitor } from '@capacitor/core';
-// import { Filesystem, Directory } from '@capacitor/filesystem';
 
 
 const FormSchema = z.object({
@@ -38,7 +37,6 @@ export function EncoderTab() {
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
   const { addLog } = useLog();
-  const isAudioContextStarted = useRef(false);
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
@@ -103,56 +101,29 @@ export function EncoderTab() {
     addLog('Сохранение аудиофайла...');
 
     try {
+      if (Capacitor.isNativePlatform()) {
+         toast({
+              title: "Функция недоступна",
+              description: "Сохранение файлов на мобильном устройстве временно отключено.",
+              variant: "destructive"
+            });
+         addLog('Попытка сохранения на нативном устройстве, функция отключена.', 'warning');
+         setIsSaving(false);
+         return;
+      }
+      
       const audioBuffer = await renderDtmfSequenceToAudioBuffer(dtmfSequence);
       const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
+      const url = URL.createObjectURL(wavBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dtmf_sequence_${Date.now()}.wav`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      addLog('Файл успешно сохранен как dtmf_sequence.wav');
 
-      if (Capacitor.isNativePlatform()) {
-        // Native platform: Use Filesystem API
-        // This feature is temporarily disabled due to dependency conflicts.
-        toast({
-          variant: "destructive",
-          title: "Функция недоступна",
-          description: "Сохранение файла на мобильном устройстве временно отключено."
-        });
-        addLog('Попытка сохранения файла на нативном устройстве. Функция временно отключена.', 'warning');
-        setIsSaving(false);
-
-        // const reader = new FileReader();
-        // reader.onloadend = async () => {
-        //   const base64data = reader.result as string;
-        //   try {
-        //     await Filesystem.writeFile({
-        //       path: `dtmf_sequence_${Date.now()}.wav`,
-        //       data: base64data,
-        //       directory: Directory.Download,
-        //     });
-        //     toast({
-        //       title: "Файл сохранен",
-        //       description: "Аудиофайл сохранен в папку Download.",
-        //     });
-        //     addLog('Файл успешно сохранен в папку Download на устройстве.');
-        //   } catch (e) {
-        //      const errorMsg = e instanceof Error ? e.message : String(e);
-        //      toast({ variant: "destructive", title: "Ошибка сохранения", description: `Не удалось сохранить файл: ${errorMsg}` });
-        //      addLog(`Ошибка сохранения на устройстве: ${errorMsg}`, 'error');
-        //   } finally {
-        //     setIsSaving(false);
-        //   }
-        // };
-        // reader.readAsDataURL(wavBlob);
-      } else {
-        // Web platform: Use download link
-        const url = URL.createObjectURL(wavBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `dtmf_sequence_${Date.now()}.wav`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        addLog('Файл успешно сохранен как dtmf_sequence.wav');
-        setIsSaving(false);
-      }
     } catch (error) {
        const errorMessage = error instanceof Error ? error.message : String(error);
        console.error("Save error:", error);
@@ -162,6 +133,7 @@ export function EncoderTab() {
         description: "Не удалось сгенерировать аудиофайл.",
       });
       addLog(`Ошибка генерации файла: ${errorMessage}`, 'error');
+    } finally {
       setIsSaving(false);
     }
   }
