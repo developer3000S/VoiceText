@@ -1,5 +1,6 @@
 
 import * as Tone from 'tone';
+import { FFT } from 'tone';
 
 const SAMPLE_RATE = 44100;
 const PREAMBLE_BITS = 16;
@@ -12,47 +13,12 @@ const PREAMBLE_DURATION_MS = PREAMBLE_BITS * BIT_DURATION_MS;
 const FREQ_0 = 1000;
 const FREQ_1 = 2000;
 const POSTAMBLE_FREQ = 1500;
-
-const FREQ_THRESHOLD = 50;
-const GOERTZEL_THRESHOLD = 1e5; // Recalibrated threshold for better sensitivity in noisy conditions
+const FFT_SIZE = 2048;
 
 export interface DecodedResult {
     text: string | null;
     error?: string;
     requiresPassword?: false; // V2 doesn't support passwords
-}
-
-// --- Goertzel Algorithm for frequency detection ---
-class Goertzel {
-    private s1 = 0;
-    private s2 = 0;
-    private coeff: number;
-
-    constructor(freq: number, sampleRate: number) {
-        const omega = (2 * Math.PI * freq) / sampleRate;
-        this.coeff = 2 * Math.cos(omega);
-    }
-
-    process(sample: number) {
-        const s0 = sample + this.coeff * this.s1 - this.s2;
-        this.s2 = this.s1;
-        this.s1 = s0;
-    }
-    
-    processChunk(chunk: Float32Array) {
-        for (const sample of chunk) {
-            this.process(sample);
-        }
-    }
-
-    getPower(): number {
-        return this.s2 * this.s2 + this.s1 * this.s1 - this.coeff * this.s1 * this.s2;
-    }
-    
-    reset() {
-        this.s1 = 0;
-        this.s2 = 0;
-    }
 }
 
 // --- CRC-8 Calculation ---
@@ -72,45 +38,71 @@ function crc8(data: Uint8Array): number {
     return crc & 0xFF;
 }
 
-// --- Main Decoding Logic ---
-
-async function getAudioData(blob: Blob): Promise<Float32Array> {
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+async function getFilteredAudioBuffer(blob: Blob): Promise<AudioBuffer> {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: SAMPLE_RATE });
     const arrayBuffer = await blob.arrayBuffer();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-    return audioBuffer.getChannelData(0);
+    const originalBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    // Filter to isolate our frequencies of interest
+    const offlineCtx = new OfflineAudioContext(originalBuffer.numberOfChannels, originalBuffer.length, originalBuffer.sampleRate);
+    const source = offlineCtx.createBufferSource();
+    source.buffer = originalBuffer;
+
+    const highPass = offlineCtx.createBiquadFilter();
+    highPass.type = 'highpass';
+    highPass.frequency.value = 900; // Cut off below our lowest freq (1000 Hz)
+
+    const lowPass = offlineCtx.createBiquadFilter();
+    lowPass.type = 'lowpass';
+    lowPass.frequency.value = 2100; // Cut off above our highest freq (2000 Hz)
+
+    source.connect(highPass);
+    highPass.connect(lowPass);
+    lowPass.connect(offlineCtx.destination);
+    source.start();
+
+    return offlineCtx.startRendering();
 }
 
-function findPreamble(data: Float32Array, addLog: (msg: string, type?: any) => void): number {
-    const preambleChunkSize = BIT_DURATION_SAMPLES;
-    const goertzel0 = new Goertzel(FREQ_0, SAMPLE_RATE);
-    const goertzel1 = new Goertzel(FREQ_1, SAMPLE_RATE);
+
+function detectBit(chunk: Float32Array, fft: FFT): number | null {
+    const magnitudes = fft.analyse(chunk);
+    const freq0Index = Math.round(FREQ_0 / (SAMPLE_RATE / FFT_SIZE));
+    const freq1Index = Math.round(FREQ_1 / (SAMPLE_RATE / FFT_SIZE));
+
+    const power0 = magnitudes[freq0Index];
+    const power1 = magnitudes[freq1Index];
     
+    // Use a sensitive threshold, assuming filtering has removed most noise.
+    const THRESHOLD = -60; // dB
+
+    if (power0 < THRESHOLD && power1 < THRESHOLD) {
+        return null; // Silence or noise
+    }
+
+    // A bit is detected if its power is significantly higher than the other.
+    if (power1 > power0 + 10 && power1 > THRESHOLD) { // +10dB difference
+        return 1;
+    }
+    if (power0 > power1 + 10 && power0 > THRESHOLD) {
+        return 0;
+    }
+
+    return null;
+}
+
+
+function findPreamble(data: Float32Array, addLog: (msg: string, type?: any) => void): number {
+    const fft = new FFT(FFT_SIZE);
     let lastBit = -1;
     let alternatingBitsCount = 0;
+    const step = Math.floor(BIT_DURATION_SAMPLES / 2); // Overlap for more robust detection
 
-    const step = Math.floor(preambleChunkSize / 2); // Check more frequently
+    for (let i = 0; i <= data.length - BIT_DURATION_SAMPLES; i += step) {
+        const chunk = data.slice(i, i + BIT_DURATION_SAMPLES);
+        const currentBit = detectBit(chunk, fft);
 
-    for (let i = 0; i <= data.length - preambleChunkSize; i += step) {
-        const chunk = data.slice(i, i + preambleChunkSize);
-        
-        goertzel0.reset();
-        goertzel1.reset();
-        
-        goertzel0.processChunk(chunk);
-        goertzel1.processChunk(chunk);
-
-        const power0 = goertzel0.getPower();
-        const power1 = goertzel1.getPower();
-
-        let currentBit = -1;
-        if (power1 > GOERTZEL_THRESHOLD && power1 > power0 * 1.2) { // Be more certain it's a 1
-            currentBit = 1;
-        } else if (power0 > GOERTZEL_THRESHOLD && power0 > power1 * 1.2) { // Be more certain it's a 0
-            currentBit = 0;
-        }
-
-        if (currentBit !== -1) {
+        if (currentBit !== null) {
             // Preamble must start with 1
             if (alternatingBitsCount === 0 && currentBit === 1) {
                 alternatingBitsCount = 1;
@@ -122,8 +114,9 @@ function findPreamble(data: Float32Array, addLog: (msg: string, type?: any) => v
                 lastBit = currentBit;
                 // We'll be more lenient: accept if we get at least 14 correct alternating bits
                 if (alternatingBitsCount >= 14) { 
-                    const preambleEndIndex = i + preambleChunkSize + ((PREAMBLE_BITS - alternatingBitsCount) * preambleChunkSize);
+                    const preambleEndIndex = i + BIT_DURATION_SAMPLES + ((PREAMBLE_BITS - alternatingBitsCount) * BIT_DURATION_SAMPLES);
                     addLog(`Преамбула найдена с ${alternatingBitsCount}/16 бит на позиции ${preambleEndIndex} семплов.`, 'info');
+                    fft.dispose();
                     return preambleEndIndex; // Return the position AFTER the full preamble
                 }
             } 
@@ -134,43 +127,36 @@ function findPreamble(data: Float32Array, addLog: (msg: string, type?: any) => v
             }
         }
     }
+    fft.dispose();
     addLog('Преамбула не найдена.', 'error');
     return -1;
 }
 
 function readBits(data: Float32Array, startIndex: number, bitCount: number, addLog: (msg: string, type?: any) => void): number[] | null {
+    const fft = new FFT(FFT_SIZE);
     const bits: number[] = [];
-    const goertzel0 = new Goertzel(FREQ_0, SAMPLE_RATE);
-    const goertzel1 = new Goertzel(FREQ_1, SAMPLE_RATE);
-
+    
     for (let i = 0; i < bitCount; i++) {
         const chunkStart = startIndex + i * BIT_DURATION_SAMPLES;
         if (chunkStart + BIT_DURATION_SAMPLES > data.length) {
             addLog(`Неожиданный конец файла при чтении бита ${i + 1}.`, 'error');
+            fft.dispose();
             return null;
         }
         const chunk = data.slice(chunkStart, chunkStart + BIT_DURATION_SAMPLES);
-        
-        goertzel0.reset();
-        goertzel1.reset();
+        const bit = detectBit(chunk, fft);
 
-        goertzel0.processChunk(chunk);
-        goertzel1.processChunk(chunk);
-
-        const power0 = goertzel0.getPower();
-        const power1 = goertzel1.getPower();
-
-        if (power1 > GOERTZEL_THRESHOLD && power1 > power0) {
-            bits.push(1);
-        } else if (power0 > GOERTZEL_THRESHOLD && power0 > power1) {
-            bits.push(0);
+        if (bit !== null) {
+            bits.push(bit);
         } else {
-            addLog(`Не удалось определить бит на позиции ${i + 1}. Сигналы слишком слабые.`, 'warning');
-            bits.push(0); // Assume 0 on failure
+             addLog(`Не удалось определить бит на позиции ${i + 1}. Сигналы слишком слабые.`, 'warning');
+             bits.push(0); // Assume 0 on failure to avoid stopping the whole process
         }
     }
+    fft.dispose();
     return bits;
 }
+
 
 function bitsToBytes(bits: number[]): Uint8Array {
     const bytes = new Uint8Array(Math.ceil(bits.length / 8));
@@ -190,8 +176,10 @@ function bitsToBytes(bits: number[]): Uint8Array {
 
 export async function decodeVtpFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): Promise<DecodedResult> {
     try {
-        const audioData = await getAudioData(blob);
-        addLog(`Аудиофайл загружен. Семплов: ${audioData.length}, Частота: ${SAMPLE_RATE}Гц`);
+        addLog(`Применение цифровых фильтров к V2 аудио...`);
+        const filteredAudioBuffer = await getFilteredAudioBuffer(blob);
+        const audioData = filteredAudioBuffer.getChannelData(0);
+        addLog(`Аудиофайл отфильтрован. Семплов: ${audioData.length}, Частота: ${SAMPLE_RATE}Гц`);
 
         const preambleEndIndex = findPreamble(audioData, addLog);
         if (preambleEndIndex === -1) {
