@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
@@ -11,6 +11,18 @@ import { useLog } from '@/context/log-context';
 import { decodeDtmfFromAudio, DecodedResult } from '@/lib/dtmf-decoder';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Input } from './ui/input';
+
+// Helper function to convert base64 to Blob
+function base64ToBlob(base64: string, mimeType: string): Blob {
+    const byteCharacters = atob(base64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType });
+}
+
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
@@ -37,12 +49,10 @@ export function DecoderTab() {
 
   const handleDecode = useCallback(async (blob: Blob, source: string, decryptPassword?: string) => {
     if (!decryptPassword) {
-      // This is the initial decode call
       cleanup();
       setIsLoading(true);
       setRecordedBlob(blob);
     } else {
-      // This is a re-decode with a password
       setIsLoading(true);
     }
     
@@ -98,9 +108,9 @@ export function DecoderTab() {
 
   const handleStopRecording = async () => {
     addLog('Запись с микрофона остановлена.');
-    const blob = await stopRecording();
-    if (blob && blob.size > 0) {
-      handleDecode(blob, 'микрофон');
+    const recordResult = await stopRecording();
+    if (recordResult && recordResult.blob.size > 0) {
+      handleDecode(recordResult.blob, 'микрофон');
     } else {
       addLog('Запись пуста, декодирование отменено.', 'warning');
     }
