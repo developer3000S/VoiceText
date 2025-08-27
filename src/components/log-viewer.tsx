@@ -7,10 +7,21 @@ import { useLog } from "@/context/log-context";
 import { Terminal, Trash2, Clipboard } from "lucide-react";
 import { Button } from "./ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { useEffect, useRef } from "react";
 
 export function LogViewer() {
   const { logs, clearLogs } = useLog();
   const { toast } = useToast();
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      const viewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
+      if (viewport) {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
+    }
+  }, [logs]);
 
   const handleCopy = () => {
     if (logs.length === 0) return;
@@ -56,7 +67,7 @@ export function LogViewer() {
         </div>
       </CardHeader>
       <CardContent>
-        <ScrollArea className="h-48 w-full rounded-md border bg-muted/20 p-4">
+        <ScrollArea className="h-48 w-full rounded-md border bg-muted/20 p-4" ref={scrollAreaRef}>
           {logs.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground">
               <p>Здесь будут отображаться логи...</p>
