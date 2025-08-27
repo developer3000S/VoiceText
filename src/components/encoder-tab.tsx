@@ -22,14 +22,31 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useLog } from '@/context/log-context';
 import { Capacitor } from '@capacitor/core';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
 
 const FormSchema = z.object({
-  text: z.string().min(1, "Сообщение не может быть пустым.").max(100, "Сообщение слишком длинное."),
+  text: z.string().min(1, "Сообщение не может быть пустым.").max(100, "Сообще-ние слишком длинное."),
 });
 
 const templates = ["Привет!", "Пока!", "Как дела?"];
+
+const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        const base64 = reader.result.split(',')[1];
+        resolve(base64);
+      } else {
+        reject(new Error("Failed to convert blob to base64"));
+      }
+    };
+    reader.readAsDataURL(blob);
+  });
+};
+
 
 export function EncoderTab() {
   const [isLoading, setIsLoading] = useState(false);
@@ -101,6 +118,51 @@ export function EncoderTab() {
     setIsPlaying(false);
   }
 
+  async function handleSaveNative(wavBlob: Blob) {
+    addLog('Нативная платформа обнаружена. Попытка сохранить в файловую систему.');
+    const fileName = `dtmf_sequence_${Date.now()}.wav`;
+    
+    try {
+        const base64Data = await blobToBase64(wavBlob);
+
+        // 1. Проверить разрешения
+        let permStatus = await Filesystem.checkPermissions();
+        addLog(`Статус разрешений на запись: ${permStatus.publicStorage}`);
+
+        if (permStatus.publicStorage !== 'granted') {
+            addLog('Разрешение не предоставлено. Запрашиваю...');
+            permStatus = await Filesystem.requestPermissions();
+        }
+
+        if (permStatus.publicStorage === 'granted') {
+             // 2. Сохранить в общую папку Download
+            const result = await Filesystem.writeFile({
+                path: fileName,
+                data: base64Data,
+                directory: Directory.Downloads,
+            });
+            addLog(`Файл успешно сохранен в папку Download. Путь: ${result.uri}`);
+            toast({ title: "Успешно", description: `Файл сохранен в Download/${fileName}` });
+        } else {
+            // 3. Фоллбэк: сохранить во внутреннее хранилище
+            addLog('Разрешение на запись в общую папку не получено. Сохраняю во внутреннее хранилище.', 'warning');
+             const result = await Filesystem.writeFile({
+                path: fileName,
+                data: base64Data,
+                directory: Directory.Data, // Внутреннее хранилище, доступно только приложению
+            });
+            addLog(`Файл сохранен во внутреннее хранилище. Путь: ${result.uri}`);
+            toast({ variant: "default", title: "Сохранено", description: `Файл сохранен во внутреннем хранилище.` });
+        }
+
+    } catch (e) {
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        addLog(`Ошибка сохранения файла на устройстве: ${errorMsg}`, 'error');
+        toast({ variant: 'destructive', title: 'Ошибка сохранения', description: errorMsg });
+    }
+}
+
+
   async function handleSave() {
     if (!dtmfSequence) return;
     setIsSaving(true);
@@ -109,15 +171,21 @@ export function EncoderTab() {
     try {
       const audioBuffer = await renderDtmfSequenceToAudioBuffer(dtmfSequence);
       const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
-      const url = URL.createObjectURL(wavBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `dtmf_sequence_${Date.now()}.wav`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      addLog('Файл успешно сохранен как dtmf_sequence.wav');
+      
+      if (isNative) {
+        await handleSaveNative(wavBlob);
+      } else {
+        // Стандартный веб-метод для скачивания
+        const url = URL.createObjectURL(wavBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `dtmf_sequence_${Date.now()}.wav`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        addLog('Файл успешно сохранен (веб-метод).');
+      }
 
     } catch (error) {
        const errorMessage = error instanceof Error ? error.message : String(error);
