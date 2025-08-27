@@ -7,11 +7,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { useLog } from '@/context/log-context';
 import { Textarea } from './ui/textarea';
 import { Modem, ModemMode, ModemState } from '@/lib/modem';
-import { PhoneCall, PhoneIncoming, Send, XCircle, Link, Unlink, Loader2 } from 'lucide-react';
+import { PhoneCall, PhoneIncoming, Send, XCircle, Link, Unlink, Loader2, PlusCircle } from 'lucide-react';
 import { Separator } from './ui/separator';
 import * as Tone from 'tone';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
-const ModemInstance = ({ id, modem, isConnected }: { id: string, modem: Modem, isConnected: boolean }) => {
+const templates = ["Test 123", "Hello World", "ABC-DEF-GHI"];
+
+const ModemInstance = ({ id, modem, isConnected, addLog }: { id: string, modem: Modem, isConnected: boolean, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void }) => {
     const [modemState, setModemState] = useState<ModemState>('idle');
     const [receivedText, setReceivedText] = useState('');
     const [textToSend, setTextToSend] = useState('');
@@ -76,7 +84,30 @@ const ModemInstance = ({ id, modem, isConnected }: { id: string, modem: Modem, i
                     <Textarea readOnly value={receivedText} className="font-mono h-20" placeholder="Ожидание..." />
                 </div>
                 <div className="space-y-1">
-                    <label className="text-sm font-medium">Отправить:</label>
+                     <div className="flex justify-between items-center mb-1">
+                        <label className="text-sm font-medium">Отправить:</label>
+                         <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <PlusCircle className="mr-2 h-4 w-4" />
+                                  Шаблоны
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent>
+                                {templates.map((template, index) => (
+                                  <DropdownMenuItem
+                                    key={index}
+                                    onSelect={() => {
+                                      setTextToSend(template);
+                                      addLog(`(Модем ${id}) Вставлен шаблон: "${template}"`);
+                                    }}
+                                  >
+                                    {template}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                     </div>
                      <div className="flex gap-2">
                         <Textarea value={textToSend} onChange={(e) => setTextToSend(e.target.value)} disabled={!isActuallyConnected} />
                         <Button onClick={handleSend} disabled={!isActuallyConnected || !textToSend} size="icon">
@@ -109,8 +140,8 @@ export function ModemTestTab() {
 
     // Connect the output of each modem to the input of the other.
     if (modemA.gainNode && modemB.gainNode) {
-        modemA.connectInput(modemB.gainNode, modemB);
-        modemB.connectInput(modemA.gainNode, modemA);
+        modemA.connectInput(modemB.gainNode);
+        modemB.connectInput(modemA.gainNode);
         
         setIsConnected(true);
         addLog('Модемы успешно соединены.');
@@ -129,7 +160,8 @@ export function ModemTestTab() {
       modemB.disconnectInput(modemA.gainNode);
     }
 
-    modemA.hangup(); // This will also hangup the partner modem
+    modemA.hangup();
+    modemB.hangup();
     
     setIsConnected(false);
     addLog('Модемы разъединены.');
@@ -171,8 +203,8 @@ export function ModemTestTab() {
         <Separator/>
 
         <div className="flex flex-col md:flex-row gap-4">
-          <ModemInstance id="A" modem={modemA} isConnected={isConnected} />
-          <ModemInstance id="B" modem={modemB} isConnected={isConnected} />
+          <ModemInstance id="A" modem={modemA} isConnected={isConnected} addLog={addLog} />
+          <ModemInstance id="B" modem={modemB} isConnected={isConnected} addLog={addLog} />
         </div>
       </CardContent>
     </Card>
