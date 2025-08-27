@@ -88,31 +88,15 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
 export function decodeSequenceFromTones(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): DecodedResult {
     addLog(`Запуск декодирования последовательности: [${sequence.join(',')}]`);
 
-    let preambleFound = false;
-    let startIdx = -1;
-    for (let i = 0; i <= sequence.length - 7; i++) {
-        if (
-            sequence[i] === '1' &&
-            sequence[i + 1] === '0' &&
-            sequence[i + 2] === '1' &&
-            sequence[i + 3] === '0' &&
-            sequence[i + 4] === '1' &&
-            sequence[i + 5] === '0' &&
-            sequence[i + 6] === '*'
-        ) {
-            preambleFound = true;
-            startIdx = i + 6; 
-            break;
-        }
-    }
+    const startIdx = sequence.indexOf('*');
 
-    if (!preambleFound || startIdx === -1) {
-        const err = 'Преамбула и стартовый символ * не найдены. Декодирование невозможно.';
+    if (startIdx === -1) {
+        const err = 'Стартовый символ * не найден. Декодирование невозможно.';
         addLog(err, 'error');
         return { text: null, requiresPassword: false, error: err, extractedTones: sequence };
     }
     
-    addLog(`Преамбула и стартовый символ * найдены. Начало пакета на позиции ${startIdx}.`);
+    addLog(`Стартовый символ * найден. Начало пакета на позиции ${startIdx}.`);
     
     if (sequence.length <= startIdx + 1) {
         const err = 'Последовательность слишком короткая, отсутствует заголовок.';

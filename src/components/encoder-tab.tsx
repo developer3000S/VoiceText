@@ -12,7 +12,6 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlayCircle, Volume2, Download, CircleDashed, PlusCircle, LockKeyhole } from 'lucide-react';
 import { playDtmfSequence, renderDtmfSequenceToAudioBuffer, textToDtmfSequence } from '@/lib/dtmf';
-import { textToVtpSequence } from '@/lib/variant2-encoder';
 import { bufferToWave } from '@/lib/wav';
 import * as Tone from 'tone';
 import {
@@ -27,12 +26,12 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Toast as CapacitorToast } from '@capacitor/toast';
 import { Input } from './ui/input';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
+import { Label } from './ui/label';
 
 
 const FormSchema = z.object({
   text: z.string().min(1, "Сообщение не может быть пустым.").max(255, "Сообщение слишком длинное (макс. 255 байт)."),
   password: z.string().optional(),
-  encodingType: z.enum(['v1', 'v2']),
 });
 
 const templates = ["Привет!", "Как дела?", "Встречаемся в 15:00."];
@@ -48,7 +47,7 @@ export function EncoderTab() {
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
-    defaultValues: { text: '', password: '', encodingType: 'v1' },
+    defaultValues: { text: '', password: '' },
   });
   
   useEffect(() => {
@@ -69,12 +68,7 @@ export function EncoderTab() {
     setGeneratedSequence(null);
     
     try {
-      let sequence: string;
-      if (data.encodingType === 'v1') {
-        sequence = textToDtmfSequence(data.text, addLog, data.password);
-      } else {
-        sequence = textToVtpSequence(data.text, addLog, data.password);
-      }
+      const sequence = textToDtmfSequence(data.text, addLog, data.password);
       setGeneratedSequence(sequence);
     } catch (error) {
        const errorMessage = error instanceof Error ? error.message : String(error);
@@ -208,42 +202,6 @@ export function EncoderTab() {
       <CardContent className="space-y-4">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="encodingType"
-              render={({ field }) => (
-                <FormItem className="space-y-3">
-                  <FormLabel>Выберите вариант кодирования</FormLabel>
-                  <FormControl>
-                    <RadioGroup
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                      className="grid grid-cols-1 md:grid-cols-2 gap-4"
-                    >
-                      <FormItem className="flex items-center space-x-3 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="v1" />
-                        </FormControl>
-                        <FormLabel className="font-normal flex flex-col">
-                          <span>Вариант 1: DTMF</span>
-                          <span className="text-xs text-muted-foreground">Быстро, с шифрованием.</span>
-                        </FormLabel>
-                      </FormItem>
-                      <FormItem className="flex items-center space-x-3 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="v2" />
-                        </FormControl>
-                         <FormLabel className="font-normal flex flex-col">
-                          <span>Вариант 2: VTP (DTMF)</span>
-                           <span className="text-xs text-muted-foreground">Надежно, с проверкой ошибок.</span>
-                        </FormLabel>
-                      </FormItem>
-                    </RadioGroup>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
             <FormField
               control={form.control}
               name="text"

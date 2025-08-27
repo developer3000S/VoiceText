@@ -8,20 +8,17 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mic, Square, FileText, Upload, Speaker, PlayCircle, CircleDashed, LockKeyhole, KeyRound } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
-import { decodeSequenceFromTones, DecodedResult as DecodedResultV1 } from '@/lib/dtmf-decoder';
-import { decodeVtpFromAudio, DecodedResult as DecodedResultV2 } from '@/lib/variant2-decoder';
+import { decodeDtmfFromAudio, decodeSequenceFromTones, DecodedResult } from '@/lib/dtmf-decoder';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Input } from './ui/input';
-import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Label } from './ui/label';
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
-  const [decodedResult, setDecodedResult] = useState<DecodedResultV1 | DecodedResultV2 | null>(null);
+  const [decodedResult, setDecodedResult] = useState<DecodedResult | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [password, setPassword] = useState('');
-  const [decodingType, setDecodingType] = useState<'v1' | 'v2'>('v1');
 
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -44,15 +41,10 @@ export function DecoderTab() {
     setIsLoading(true);
     setRecordedBlob(blob);
     
-    addLog(`Запуск локального декодирования (${decodingType}) аудио из источника: ${source}`);
+    addLog(`Запуск декодирования аудио из источника: ${source}`);
     try {
-      let result;
-      if (decodingType === 'v1') {
-        const tones = await (await import('@/lib/dtmf-decoder')).decodeDtmfFromAudio(blob, addLog);
-        result = tones ? decodeSequenceFromTones(tones, addLog) : { text: null, requiresPassword: false, error: 'Не удалось извлечь DTMF тоны.' };
-      } else {
-        result = await decodeVtpFromAudio(blob, addLog);
-      }
+      const tones = await decodeDtmfFromAudio(blob, addLog);
+      const result = tones ? decodeSequenceFromTones(tones, addLog) : { text: null, requiresPassword: false, error: 'Не удалось извлечь DTMF тоны.' };
       
       setDecodedResult(result);
 
@@ -81,7 +73,7 @@ export function DecoderTab() {
       addLog(`Ошибка обработки аудио: ${errorMessage}`, 'error');
     }
     setIsLoading(false);
-  }, [toast, addLog, decodingType]);
+  }, [toast, addLog]);
   
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -142,7 +134,7 @@ export function DecoderTab() {
   };
 
   const handleDecrypt = async () => {
-    if (!recordedBlob || !password) {
+    if (!decodedResult?.extractedTones || !password) {
         toast({ variant: 'destructive', title: 'Ошибка', description: 'Нет данных для расшифровки или не введен пароль.' });
         return;
     }
@@ -151,13 +143,7 @@ export function DecoderTab() {
     setIsLoading(true);
     
     try {
-        let result;
-        if (decodingType === 'v1') {
-            const tones = await (await import('@/lib/dtmf-decoder')).decodeDtmfFromAudio(recordedBlob, addLog);
-            result = tones ? decodeSequenceFromTones(tones, addLog, password) : { text: null, requiresPassword: false, error: 'Не удалось извлечь DTMF тоны.' };
-        } else {
-            result = await decodeVtpFromAudio(recordedBlob, addLog, password);
-        }
+        const result = decodeSequenceFromTones(decodedResult.extractedTones, addLog, password);
         setDecodedResult(result);
         
         if (result.text) {
@@ -179,37 +165,10 @@ export function DecoderTab() {
     <Card className="border-0 shadow-none">
       <CardHeader>
         <CardTitle>Декодер аудио в текст</CardTitle>
-        <CardDescription>Запишите или загрузите аудио с тонами для декодирования в текст.</CardDescription>
+        <CardDescription>Запишите или загрузите аудио с DTMF-тонами для декодирования в текст.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         
-        <RadioGroup
-          value={decodingType}
-          onValueChange={(value) => setDecodingType(value as 'v1' | 'v2')}
-          className="grid grid-cols-1 md:grid-cols-2 gap-4"
-        >
-          <div>
-            <RadioGroupItem value="v1" id="r1" className="peer sr-only" />
-            <Label
-              htmlFor="r1"
-              className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"
-            >
-              <span>Вариант 1: DTMF</span>
-              <span className="text-xs text-muted-foreground mt-1">Быстрый, с шифрованием</span>
-            </Label>
-          </div>
-          <div>
-            <RadioGroupItem value="v2" id="r2" className="peer sr-only" />
-            <Label
-              htmlFor="r2"
-              className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"
-            >
-               <span>Вариант 2: VTP (DTMF)</span>
-               <span className="text-xs text-muted-foreground mt-1">Надежный, с проверкой ошибок</span>
-            </Label>
-          </div>
-        </RadioGroup>
-
         <Alert variant="default" className="bg-primary/10 border-primary/20">
           <Speaker className="h-5 w-5 text-primary" />
           <AlertTitle className="font-semibold text-primary">Важная инструкция</AlertTitle>

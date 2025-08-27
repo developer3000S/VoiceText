@@ -6,10 +6,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EncoderTab } from "@/components/encoder-tab";
 import { DecoderTab } from "@/components/decoder-tab";
 import { ManualDecoderTab } from "@/components/manual-decoder-tab";
-import { AudioWaveform, Terminal } from "lucide-react";
-import { useState } from "react";
+import { AudioWaveform, Link, Radio, Type } from "lucide-react";
 import { LogViewer } from "./log-viewer";
 import { LogProvider } from "@/context/log-context";
+import { ModemTab } from "./modem-tab";
 
 export function VoiceTextApp() {
   return (
@@ -30,9 +30,9 @@ export function VoiceTextApp() {
           <CardContent>
             <Tabs defaultValue="encoder" className="w-full">
               <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="encoder">Кодировщик</TabsTrigger>
-                <TabsTrigger value="decoder">Декодер</TabsTrigger>
-                <TabsTrigger value="manual">Вручную</TabsTrigger>
+                <TabsTrigger value="encoder"><Type className="w-4 h-4 mr-2"/>Кодировщик</TabsTrigger>
+                <TabsTrigger value="decoder"><Radio className="w-4 h-4 mr-2"/>Декодер</TabsTrigger>
+                <TabsTrigger value="modem"><Link className="w-4 h-4 mr-2"/>Модем</TabsTrigger>
               </TabsList>
               <TabsContent value="encoder">
                 <EncoderTab />
@@ -40,8 +40,8 @@ export function VoiceTextApp() {
               <TabsContent value="decoder">
                 <DecoderTab />
               </TabsContent>
-              <TabsContent value="manual">
-                <ManualDecoderTab />
+              <TabsContent value="modem">
+                 <ModemTab />
               </TabsContent>
             </Tabs>
           </CardContent>
