@@ -3,21 +3,20 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Mic, Square, FileText, Upload, ShieldCheck } from 'lucide-react';
+import { Loader2, Mic, Square, FileText, Upload, AlertTriangle, Speaker } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
 import { decodeDtmfFromAudio } from '@/lib/dtmf-decoder';
-import { Capacitor } from '@capacitor/core';
-import type { PermissionState } from '@capacitor/core';
+import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 
 export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [decodedText, setDecodedText] = useState<string | null>(null);
 
   const { toast } = useToast();
-  const { isRecording, startRecording, stopRecording } = useRecorder();
+  const { isRecording, startRecording, stopRecording, hasPermission, requestPermission } = useRecorder();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addLog } = useLog();
 
@@ -65,8 +64,13 @@ export function DecoderTab() {
   };
   
   const handleStartRecording = async () => {
-    addLog('Запись с микрофона начата...');
-    await startRecording();
+    const permissionGranted = await requestPermission();
+    if (permissionGranted) {
+        addLog('Разрешение на запись получено. Запись с микрофона начата...');
+        await startRecording();
+    } else {
+        addLog('В доступе к микрофону отказано.', 'error');
+    }
   }
 
   const handleStopRecording = async () => {
@@ -86,6 +90,15 @@ export function DecoderTab() {
         <CardDescription>Запишите или загрузите аудио с DTMF-тонами для декодирования в текст.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        
+        <Alert variant="default" className="bg-primary/10 border-primary/20">
+          <Speaker className="h-5 w-5 text-primary" />
+          <AlertTitle className="font-semibold text-primary">Важная инструкция</AlertTitle>
+          <AlertDescription>
+            Для записи DTMF-сигналов во время звонка, пожалуйста, включите **громкую связь** на телефоне, а затем начните запись в этом приложении.
+          </AlertDescription>
+        </Alert>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Button 
                 onClick={isRecording ? handleStopRecording : handleStartRecording} 

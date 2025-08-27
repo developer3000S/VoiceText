@@ -3,61 +3,53 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useToast } from './use-toast';
-import { Capacitor } from '@capacitor/core';
 
 export const useRecorder = () => {
     const { toast } = useToast();
     const [isRecording, setIsRecording] = useState(false);
+    const [hasPermission, setHasPermission] = useState<boolean | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const recordedChunksRef = useRef<Blob[]>([]);
 
-    const checkAndRequestPermissions = useCallback(async () => {
-        if (Capacitor.isNativePlatform()) {
-            try {
-                // On native, permissions are requested via the manifest and at runtime by the WebView.
-                // We can try to trigger a request to be sure.
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                // We don't need the stream, just to trigger the permission prompt.
-                stream.getTracks().forEach(track => track.stop());
-                return true;
-            } catch (error) {
-                console.error("Permission error on native:", error);
-                 toast({
-                    variant: "destructive",
-                    title: "Доступ к микрофону запрещен",
-                    description: "Пожалуйста, предоставьте доступ к микрофону в настройках вашего устройства.",
-                });
-                return false;
-            }
-        }
-        
-        // For web
+    const requestPermission = useCallback(async (): Promise<boolean> => {
         try {
+            // Запрашиваем доступ к микрофону. Этот вызов покажет системное окно.
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // Сразу останавливаем треки, так как нам нужен только факт разрешения.
             stream.getTracks().forEach(track => track.stop());
+            setHasPermission(true);
+            toast({
+                title: "Доступ получен",
+                description: "Разрешение на использование микрофона предоставлено.",
+            });
             return true;
         } catch (error) {
-            console.error("Permission error on web:", error);
+            console.error("Ошибка запроса разрешений:", error);
+            setHasPermission(false);
             toast({
                 variant: "destructive",
                 title: "Доступ к микрофону запрещен",
-                description: "Пожалуйста, предоставьте доступ к микрофону в настройках вашего браузера.",
+                description: "Пожалуйста, предоставьте доступ к микрофону в настройках вашего устройства или браузера.",
             });
             return false;
         }
     }, [toast]);
 
     const startRecording = useCallback(async () => {
-        const hasPermission = await checkAndRequestPermissions();
         if (!hasPermission) {
-            return;
+            const permissionGranted = await requestPermission();
+            if (!permissionGranted) return;
         }
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             setIsRecording(true);
             recordedChunksRef.current = [];
-            const recorder = new MediaRecorder(stream);
+            
+            // Указываем кодек, чтобы повысить совместимость
+            const options = { mimeType: 'audio/webm;codecs=opus' };
+            const recorder = new MediaRecorder(stream, MediaRecorder.isTypeSupported(options.mimeType) ? options : undefined);
+
             mediaRecorderRef.current = recorder;
 
             recorder.ondataavailable = (event) => {
@@ -73,7 +65,7 @@ export const useRecorder = () => {
             recorder.start();
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error("Error starting recording:", errorMessage);
+            console.error("Ошибка начала записи:", errorMessage);
             toast({
               variant: "destructive",
               title: "Ошибка записи",
@@ -81,16 +73,15 @@ export const useRecorder = () => {
             });
             setIsRecording(false);
         }
-    }, [toast, checkAndRequestPermissions]);
+    }, [toast, hasPermission, requestPermission]);
     
-    const stopRecording = useCallback(async (): Promise<Blob> => {
-        return new Promise((resolve) => {
-            if (!mediaRecorderRef.current || !isRecording) {
-                 resolve(new Blob());
-                 return;
-            }
+    const stopRecording = useCallback(async (): Promise<Blob | null> => {
+        if (!mediaRecorderRef.current || !isRecording) {
+             return null;
+        }
 
-            mediaRecorderRef.current.onstop = () => {
+        return new Promise((resolve) => {
+            mediaRecorderRef.current!.onstop = () => {
                 const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
                 const blob = new Blob(recordedChunksRef.current, { type: mimeType });
                 recordedChunksRef.current = [];
@@ -99,9 +90,9 @@ export const useRecorder = () => {
                 resolve(blob);
             };
 
-            mediaRecorderRef.current.stop();
+            mediaRecorderRef.current!.stop();
         });
     }, [isRecording]);
 
-    return { isRecording, startRecording, stopRecording };
+    return { isRecording, startRecording, stopRecording, hasPermission, requestPermission };
 };
