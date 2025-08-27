@@ -32,10 +32,24 @@ function bytesToBitString(bytes: Uint8Array): string {
 // --- Text to Packet Conversion ---
 export function textToVtpSequence(text: string, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): string {
     addLog(`(V2) Начало кодирования по протоколу VTP: "${text}"`);
+    const isEncrypted = !!password && password.length > 0;
     
     // Convert text to UTF-8 bytes
-    const textEncoder = new TextEncoder();
-    const dataBytes = textEncoder.encode(text);
+    let dataBytes: Uint8Array;
+    if (isEncrypted) {
+        addLog(`(V2) Шифрование текста с паролем...`);
+        // This is a simple placeholder for encryption logic.
+        // For a real application, a more robust encryption library should be used.
+        const encoder = new TextEncoder();
+        const keyEncoder = new TextEncoder();
+        const textData = encoder.encode(text);
+        const keyData = keyEncoder.encode(password);
+        const encryptedData = textData.map((byte, i) => byte ^ keyData[i % keyData.length]);
+        dataBytes = new Uint8Array(encryptedData);
+    } else {
+        const encoder = new TextEncoder();
+        dataBytes = encoder.encode(text);
+    }
     
     if (dataBytes.length > 255) {
         throw new Error("Сообщение превышает максимальную длину в 255 байт.");
@@ -44,7 +58,7 @@ export function textToVtpSequence(text: string, addLog: (message: string, type?:
     addLog(`(V2) Текст преобразован в ${dataBytes.length} байт (UTF-8).`);
 
     // Create header (2 bytes)
-    const headerBytes = new Uint8Array([dataBytes.length, 0x01]); // Length + Packet Type (text)
+    const headerBytes = new Uint8Array([dataBytes.length, isEncrypted ? 0x01 : 0x00]); // Length + Encryption Flag
 
     // Calculate CRC-8
     const dataToCrc = new Uint8Array([...headerBytes, ...dataBytes]);
@@ -60,7 +74,10 @@ export function textToVtpSequence(text: string, addLog: (message: string, type?:
     const bitString = bytesToBitString(fullPacketBytes);
     addLog(`(V2) Пакет в бинарном виде: ${bitString}`);
     
-    // Use the main DTMF sequence generator, passing the bit string as the payload.
-    // The V1 encoder will handle passwords and framing (*, #, preamble).
-    return textToDtmfSequence(bitString, addLog, password, true); // isV2 = true
+    // The VTP bit string is now the payload for a DTMF-like transmission
+    const preamble = '1,0,1,0,1,0';
+    const finalSequence = `${preamble},*,${bitString.split('').join(',')},#`;
+    
+    addLog(`Кодирование завершено.`);
+    return finalSequence;
 }

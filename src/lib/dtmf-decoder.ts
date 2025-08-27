@@ -85,7 +85,7 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
     return DTMF_MAP[`${detectedLowFreq},${detectedHighFreq}`] || null;
 }
 
-export function decodeSequenceFromTones(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string, isV2: boolean = false): DecodedResult {
+export function decodeSequenceFromTones(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): DecodedResult {
     addLog(`Запуск декодирования последовательности: [${sequence.join(',')}]`);
 
     let preambleFound = false;
@@ -140,7 +140,7 @@ export function decodeSequenceFromTones(sequence: string[], addLog: (message: st
         return { text: null, requiresPassword: true, extractedTones: sequence };
     }
 
-    const text = dtmfToText(payload, isEncrypted, addLog, password, isV2);
+    const text = dtmfToText(payload, isEncrypted, addLog, password);
     
     if (text === null && isEncrypted) {
          return { text: null, requiresPassword: true, error: 'Ошибка расшифровки. Неверный пароль?', extractedTones: sequence };
@@ -162,7 +162,7 @@ async function getAudioContext(blob: Blob): Promise<AudioBuffer> {
      }
 }
 
-export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string, isV2: boolean = false): Promise<DecodedResult> {
+export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void): Promise<string[] | null> {
     try {
         const originalAudioBuffer = await getAudioContext(blob);
         addLog(`Аудиофайл успешно загружен. Длительность: ${originalAudioBuffer.duration.toFixed(2)}с, Частота: ${originalAudioBuffer.sampleRate}Гц`);
@@ -227,12 +227,11 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
             }
         }
         
-        const decoded = decodeSequenceFromTones(detectedTones, addLog, password, isV2);
-        return decoded;
+        return detectedTones;
 
     } catch(error) {
          const err = `Критическая ошибка при декодировании аудио: ${(error as Error).message}`;
          addLog(err, 'error');
-         return { text: null, requiresPassword: false, error: err };
+         return null;
     }
 }

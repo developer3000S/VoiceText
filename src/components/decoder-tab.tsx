@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mic, Square, FileText, Upload, Speaker, PlayCircle, CircleDashed, LockKeyhole, KeyRound } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
-import { decodeDtmfFromAudio, DecodedResult as DecodedResultV1, decodeSequenceFromTones } from '@/lib/dtmf-decoder';
+import { decodeSequenceFromTones, DecodedResult as DecodedResultV1 } from '@/lib/dtmf-decoder';
 import { decodeVtpFromAudio, DecodedResult as DecodedResultV2 } from '@/lib/variant2-decoder';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Input } from './ui/input';
@@ -19,7 +19,6 @@ export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [decodedResult, setDecodedResult] = useState<DecodedResultV1 | DecodedResultV2 | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
-  const [extractedTones, setExtractedTones] = useState<string[] | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [password, setPassword] = useState('');
   const [decodingType, setDecodingType] = useState<'v1' | 'v2'>('v1');
@@ -28,12 +27,11 @@ export function DecoderTab() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const { addLog } = useLog();
-  const { isRecording, startRecording, stopRecording } = useRecorder(addLog);
+  const { isRecording, startRecording, stopRecording } = useRecorder();
 
   const cleanup = () => {
     setDecodedResult(null);
     setRecordedBlob(null);
-    setExtractedTones(null);
     setPassword('');
     if (audioRef.current) {
       URL.revokeObjectURL(audioRef.current.src);
@@ -50,15 +48,13 @@ export function DecoderTab() {
     try {
       let result;
       if (decodingType === 'v1') {
-        result = await decodeDtmfFromAudio(blob, addLog);
+        const tones = await (await import('@/lib/dtmf-decoder')).decodeDtmfFromAudio(blob, addLog);
+        result = tones ? decodeSequenceFromTones(tones, addLog) : { text: null, requiresPassword: false, error: 'Не удалось извлечь DTMF тоны.' };
       } else {
         result = await decodeVtpFromAudio(blob, addLog);
       }
       
       setDecodedResult(result);
-      if (result.extractedTones) {
-        setExtractedTones(result.extractedTones);
-      }
 
       if (result.text !== null && result.text !== undefined) {
         addLog(`Декодирование успешно. Результат: "${result.text}"`);
@@ -102,11 +98,14 @@ export function DecoderTab() {
   const handleStartRecording = async () => {
       cleanup();
       await startRecording();
+      addLog('Запись с микрофона начата...');
   }
 
   const handleStopRecording = async () => {
+    addLog('Остановка записи...');
     const recordResult = await stopRecording();
     if (recordResult && recordResult.blob.size > 0) {
+      addLog('Запись завершена, начало декодирования.');
       handleDecode(recordResult.blob, 'микрофон');
     } else {
       addLog('Запись пуста, декодирование отменено.', 'warning');
@@ -154,7 +153,8 @@ export function DecoderTab() {
     try {
         let result;
         if (decodingType === 'v1') {
-            result = await decodeDtmfFromAudio(recordedBlob, addLog, password);
+            const tones = await (await import('@/lib/dtmf-decoder')).decodeDtmfFromAudio(recordedBlob, addLog);
+            result = tones ? decodeSequenceFromTones(tones, addLog, password) : { text: null, requiresPassword: false, error: 'Не удалось извлечь DTMF тоны.' };
         } else {
             result = await decodeVtpFromAudio(recordedBlob, addLog, password);
         }

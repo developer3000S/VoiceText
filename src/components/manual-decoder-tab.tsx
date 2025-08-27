@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Wand2, FileText, LockKeyhole, KeyRound } from 'lucide-react';
+import { Loader2, Wand2, FileText } from 'lucide-react';
 import { useLog } from '@/context/log-context';
 import { decodeSequenceFromTones, DecodedResult as DecodedResultV1 } from '@/lib/dtmf-decoder';
 import { decodeVtpFromSequence, DecodedResult as DecodedResultV2 } from '@/lib/variant2-decoder';
@@ -172,10 +172,7 @@ export function ManualDecoderTab() {
                   <FormItem>
                     <FormLabel>Пароль (если требуется)</FormLabel>
                     <FormControl>
-                      <div className="relative">
-                        <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input type="password" placeholder="Введите пароль для расшифровки" {...field} className="pl-9"/>
-                      </div>
+                      <Input type="password" placeholder="Введите пароль для расшифровки" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
