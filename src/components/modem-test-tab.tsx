@@ -28,11 +28,13 @@ const ModemInstance = ({ id, modem, isConnected }: { id: string, modem: Modem, i
     
     const startCalling = async () => {
         if (!isConnected) return;
+        await modem.initialize();
         modem.start(ModemMode.CALL);
     };
 
     const startAnswering = async () => {
         if (!isConnected) return;
+        await modem.initialize();
         modem.start(ModemMode.ANSWER);
     };
     
@@ -98,18 +100,18 @@ export function ModemTestTab() {
 
   const connectModems = useCallback(async () => {
     addLog('Соединение виртуальных модемов...');
-    // Initialize both modems. This creates their audio contexts and output nodes.
+    
     await modemA.initialize();
     await modemB.initialize();
 
-    const outputA = modemA.getOutputNode();
-    const outputB = modemB.getOutputNode();
+    const outputA = modemA.gainNode;
+    const outputB = modemB.gainNode;
 
     if (outputA && outputB) {
-        // To connect nodes from different contexts, you must pass the destination context.
         // Connect A's output to B's input analyzer, and vice versa.
-        modemA.connectInput(outputB, modemB.audioContext);
-        modemB.connectInput(outputA, modemA.audioContext);
+        modemB.connectInput(outputA);
+        modemA.connectInput(outputB);
+        
         setIsConnected(true);
         addLog('Модемы успешно соединены.');
     } else {
@@ -119,22 +121,23 @@ export function ModemTestTab() {
 
   const disconnectModems = useCallback(() => {
     addLog('Разъединение виртуальных модемов...');
+    
+    if (modemA.gainNode) modemA.disconnectInput(modemB.gainNode!);
+    if (modemB.gainNode) modemB.disconnectInput(modemA.gainNode!);
+
     modemA.hangup(); 
     modemB.hangup(); 
-    
-    modemA.disconnectInput();
-    modemB.disconnectInput();
     
     setIsConnected(false);
     addLog('Модемы разъединены.');
   }, [addLog, modemA, modemB]);
   
   useEffect(() => {
+      // Cleanup on component unmount
       return () => {
-          modemA.hangup();
-          modemB.hangup();
+          disconnectModems();
       }
-  }, [modemA, modemB]);
+  }, [disconnectModems]);
 
   return (
     <Card className="border-0 shadow-none">

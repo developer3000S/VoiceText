@@ -14,7 +14,7 @@ const BIT_0_FREQ = 1070;   // Space
 // Timing
 const BIT_DURATION = 0.05; // 50ms per bit => 20 baud
 const HANDSHAKE_TIMEOUT_MS = 5000;
-const BIT_RECEIVE_TIMEOUT_MS = BIT_DURATION * 1000 * 2;
+const BIT_RECEIVE_TIMEOUT_MS = BIT_DURATION * 1000 * 2; // Timeout for waiting for the next bit in a byte
 
 // Protocol bits
 const START_BIT = 0;
@@ -23,21 +23,23 @@ const STOP_BIT = 1;
 
 export class Modem {
     private state: ModemState = 'idle';
-    public audioContext!: AudioContext;
-    private analyser!: AnalyserNode;
+    public audioContext!: Tone.Context;
+    private analyser!: Tone.FFT;
     private microphoneStream: MediaStream | null = null;
     private synth: Tone.Synth | null = null;
-    private gainNode: GainNode | null = null;
-    private inputSource: AudioNode | null = null;
-    private oscillator: Tone.Oscillator | null = null;
+    public gainNode: Tone.Gain | null = null;
+    private inputSource: MediaStreamAudioSourceNode | null = null;
 
     public onStateChange: (newState: ModemState) => void;
     public onDataReceived: (data: string) => void;
     private addLog: (message: string, type?: 'info' | 'error' | 'warning') => void;
-    private analysisFrameId: number | null = null;
+    private partnerModem: Modem | null = null;
     public mode: ModemMode | null = null;
     private id: string;
-    private partnerModem: Modem | null = null;
+    
+    private listenLoop: Tone.Loop | null = null;
+    private handshakeTimeout: NodeJS.Timeout | null = null;
+
 
     constructor(
         onStateChange: (newState: ModemState) => void,
@@ -63,29 +65,24 @@ export class Modem {
 
     async initialize() {
         if (this.audioContext && this.audioContext.state === 'running') return;
+        
         await Tone.start();
-        this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        Tone.setContext(this.audioContext);
+        this.audioContext = Tone.getContext();
 
-        this.analyser = this.audioContext.createAnalyser();
-        this.analyser.fftSize = 2048;
-        
-        this.gainNode = this.audioContext.createGain();
-        this.gainNode.connect(this.audioContext.destination);
-        
-        this.synth = new Tone.Synth().connect(new Tone.Gain(0.5));
-        this.oscillator = new Tone.Oscillator(440, "sine").toDestination();
+        this.analyser = new Tone.FFT(2048);
+        this.synth = new Tone.Synth().toDestination();
+        this.gainNode = new Tone.Gain(1.0).connect(this.analyser);
         this.synth.connect(this.gainNode);
 
         this.log('Модем инициализирован');
     }
-
+    
     private async ensureMicInput() {
        if (!this.inputSource) {
             try {
                 this.microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const source = this.audioContext.createMediaStreamSource(this.microphoneStream);
-                this.connectInput(source, this.audioContext);
+                this.inputSource = this.audioContext.createMediaStreamSource(this.microphoneStream);
+                this.inputSource.connect(this.gainNode!);
                 this.log('Вход с микрофона активирован.');
             } catch (error) {
                 this.log('Ошибка доступа к микрофону', 'error');
@@ -94,45 +91,34 @@ export class Modem {
             }
         }
     }
-
-    connectInput(source: AudioNode, destContext: AudioContext) {
-        if (destContext.state === 'closed') {
-             this.log('Cannot connect to a closed audio context.', 'error');
-             return;
-        }
-        if(this.audioContext.state === 'closed'){
-            this.log('Source audio context is closed, cannot connect.', 'error');
-            return;
-        }
-        // Instead of connecting directly, we check if contexts are different.
-        // This is crucial for the test tab.
-        if (this.audioContext !== destContext) {
-            // For the test tab, we directly connect the gain node of the source
-            // modem to the analyser of the destination modem.
-            this.gainNode?.connect(this.analyser);
-        } else {
-             this.inputSource = source;
-             this.inputSource.connect(this.analyser);
-        }
-
-        this.log(`Вход соединен`);
+    
+    // This method is for test mode to connect the output of this modem to the input of another.
+    connectInput(sourceNode: Tone.Gain) {
+       if (this.gainNode) {
+          sourceNode.connect(this.analyser);
+          this.log(`Вход соединен с другим модемом`);
+       }
     }
 
-    disconnectInput() {
-        this.inputSource?.disconnect();
-        this.gainNode?.disconnect(); // Disconnect gain node as well
-        this.inputSource = null;
-        this.partnerModem = null;
-        this.log('Вход отсоединен.');
-    }
-
-    getOutputNode(): AudioNode | null {
-        return this.gainNode;
+    disconnectInput(sourceNode: Tone.Gain) {
+        if (this.gainNode) {
+            try {
+              sourceNode.disconnect(this.analyser);
+              this.log('Вход отсоединен.');
+            } catch (e) {
+              this.log('Ошибка при отсоединении входа, возможно уже отсоединен', 'warning');
+            }
+        }
     }
 
     async start(mode: ModemMode) {
         if (this.state !== 'idle' && this.state !== 'error') return;
         
+        await this.initialize();
+        if (this.audioContext.state !== 'running') {
+             await this.audioContext.resume();
+        }
+
         if (!this.inputSource) {
             await this.ensureMicInput();
         }
@@ -142,37 +128,43 @@ export class Modem {
         if (mode === ModemMode.ANSWER) {
             this.setState('answering');
             this.log('Ожидание вызова...');
-            this.listenForTone(REQUEST_FREQ, HANDSHAKE_TIMEOUT_MS).then(found => {
-                if (found) {
-                    this.log('Сигнал запроса получен, отправка сигнала готовности...');
-                    this.performHandshake(ModemMode.ANSWER);
-                } else {
-                    this.log('Таймаут ожидания сигнала запроса', 'error');
-                    this.hangup();
-                }
+            this.listenForTone(REQUEST_FREQ, () => {
+                this.log('Сигнал запроса получен, отправка сигнала готовности...');
+                this.performHandshake(ModemMode.ANSWER);
             });
         } else { // ModemMode.CALL
             this.setState('calling');
             this.log('Вызов... Отправка сигнала запроса.');
             this.playTone(REQUEST_FREQ, 500);
-            this.listenForTone(CARRIER_FREQ, HANDSHAKE_TIMEOUT_MS).then(found => {
-                if (found) {
-                    this.log('Сигнал готовности получен.');
-                    this.performHandshake(ModemMode.CALL);
-                } else {
-                    this.log('Таймаут ожидания сигнала готовности', 'error');
-                    this.hangup();
-                }
+            this.listenForTone(CARRIER_FREQ, () => {
+                 this.log('Сигнал готовности получен.');
+                 this.performHandshake(ModemMode.CALL);
             });
         }
+        
+        // Set a timeout for the handshake
+        if(this.handshakeTimeout) clearTimeout(this.handshakeTimeout);
+        this.handshakeTimeout = setTimeout(() => {
+            if (this.state === 'calling' || this.state === 'answering') {
+                this.log(this.state === 'calling' ? 'Таймаут ожидания сигнала готовности' : 'Таймаут ожидания сигнала запроса', 'error');
+                this.hangup();
+            }
+        }, HANDSHAKE_TIMEOUT_MS);
     }
 
     private async performHandshake(mode: ModemMode) {
+        if (this.handshakeTimeout) clearTimeout(this.handshakeTimeout);
+        this.stopListeningForTone();
+
         this.setState('handshake');
         if (mode === ModemMode.ANSWER) {
             this.log('Handshake: Отправка сигнала готовности (carrier)');
             await this.playTone(CARRIER_FREQ, 1000);
+        } else {
+             // Caller waits a bit to ensure answerer is ready
+             await new Promise(res => setTimeout(res, 500));
         }
+
         this.log('Handshake завершен. Соединение установлено.');
         this.setState('connected');
         this.startListeningForData();
@@ -180,7 +172,7 @@ export class Modem {
 
     private async playTone(freq: number, duration: number): Promise<void> {
        return new Promise(resolve => {
-           if (!this.synth) return resolve();
+           if (!this.synth || this.audioContext.state !== 'running') return resolve();
            this.synth.triggerAttackRelease(freq, duration / 1000, this.audioContext.currentTime);
            setTimeout(resolve, duration);
        })
@@ -210,18 +202,23 @@ export class Modem {
     }
 
     private startListeningForData() {
-        if (this.analysisFrameId) return;
-        this.log('Обнаружено начало передачи данных');
+        if (this.listenLoop) this.listenLoop.stop();
+        
+        this.log('Начало прослушивания данных...');
         let bitBuffer: number[] = [];
-        let lastBitTime = 0;
+        let lastBitTime = performance.now();
         let isReceivingByte = false;
 
-        const processFrame = () => {
-            if (this.state !== 'connected') return;
+        this.listenLoop = new Tone.Loop(time => {
+            const freq = this.detectFrequency();
+            if (!freq) return;
 
-            this.analysisFrameId = requestAnimationFrame(processFrame);
+            const bit = this.frequencyToBit(freq);
+            if (bit === null) return;
+            
             const now = performance.now();
             
+            // Timeout check for byte reception
             if (isReceivingByte && (now - lastBitTime > BIT_RECEIVE_TIMEOUT_MS)) {
                 this.log(`Таймаут при приеме битов, буфер сброшен: [${bitBuffer.join('')}]`, 'warning');
                 bitBuffer = [];
@@ -229,40 +226,38 @@ export class Modem {
                 return;
             }
 
-            const freq = this.detectFrequency();
-            if (!freq) return;
-
-            const bit = this.frequencyToBit(freq);
-            if (bit === null) return;
+            // Debounce bits - only register a new bit if enough time has passed
+            if (now - lastBitTime < BIT_DURATION * 1000 * 0.8) {
+                return;
+            }
+            lastBitTime = now;
 
             if (!isReceivingByte) {
                 if (bit === START_BIT) {
                     isReceivingByte = true;
                     bitBuffer = [];
-                    lastBitTime = now;
                 }
             } else { 
-                if (now - lastBitTime > (BIT_DURATION * 1000 * 0.8)) {
-                    lastBitTime = now;
-                    bitBuffer.push(bit);
+                bitBuffer.push(bit);
 
-                    if (bitBuffer.length === 9) {
-                        const stopBit = bitBuffer.pop(); 
-                        if (stopBit !== STOP_BIT) {
-                            this.log(`Ошибка: неверный стоповый бит. Получено: ${stopBit}`, 'error');
-                        } else {
-                            const byteValue = parseInt(bitBuffer.reverse().join(''), 2);
-                            const char = String.fromCharCode(byteValue);
-                            this.log(`Принят байт 0x${byteValue.toString(16)}, символ '${char}'`);
-                            this.onDataReceived(char);
-                        }
-                        isReceivingByte = false;
-                        bitBuffer = [];
+                if (bitBuffer.length === 9) { // 8 data bits + 1 stop bit
+                    const stopBit = bitBuffer.pop(); 
+                    if (stopBit !== STOP_BIT) {
+                        this.log(`Ошибка: неверный стоповый бит. Получено: ${stopBit}`, 'error');
+                    } else {
+                        // LSB first, so we don't need to reverse
+                        const byteValue = bitBuffer.reduce((acc, b, i) => acc | (b << i), 0);
+                        const char = String.fromCharCode(byteValue);
+                        this.log(`Принят байт 0x${byteValue.toString(16)}, символ '${char}'`);
+                        this.onDataReceived(char);
                     }
+                    isReceivingByte = false;
+                    bitBuffer = [];
                 }
             }
-        };
-        processFrame();
+        }, "16n").start(0);
+
+        Tone.Transport.start();
     }
     
     private frequencyToBit(freq: number): number | null {
@@ -272,91 +267,83 @@ export class Modem {
     }
 
     private stopListeningForData() {
-        if (this.analysisFrameId) {
-            cancelAnimationFrame(this.analysisFrameId);
-            this.analysisFrameId = null;
-        }
+        this.listenLoop?.stop();
+        this.listenLoop?.dispose();
+        this.listenLoop = null;
     }
 
     hangup() {
         if (this.state === 'idle') return;
 
+        this.stopListeningForTone();
         this.stopListeningForData();
-        this.oscillator?.stop();
         this.synth?.triggerRelease();
         
         if (this.microphoneStream) {
             this.microphoneStream.getTracks().forEach(track => track.stop());
             this.microphoneStream = null;
+            this.inputSource = null;
         }
-        
+
         if (this.partnerModem && this.partnerModem.state !== 'idle') {
             this.partnerModem.hangup();
         }
         
-        if (this.audioContext && this.audioContext.state !== 'closed') {
-           this.audioContext.close().catch(e => this.log(`Ошибка при закрытии AudioContext: ${e}`, 'error'));
-        }
-
         this.setState('idle');
         this.log('Соединение разорвано');
     }
 
     private detectFrequency(): number | null {
         if (!this.analyser) return null;
-        const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-        this.analyser.getByteFrequencyData(dataArray);
+        
+        const values = this.analyser.getValue();
+        if (!values || values.length === 0) return null;
 
-        let maxVal = -1;
+        let maxVal = -Infinity;
         let maxIndex = -1;
 
-        for (let i = 0; i < dataArray.length; i++) {
-            if (dataArray[i] > maxVal) {
-                maxVal = dataArray[i];
+        // Find the peak in the FFT
+        for (let i = 0; i < values.length; i++) {
+            if (values[i] > maxVal) {
+                maxVal = values[i];
                 maxIndex = i;
             }
         }
         
-        if (maxVal > 50) { 
-            const frequency = maxIndex * (this.audioContext.sampleRate / this.analyser.fftSize);
-            if (frequency > 500) { 
-                return frequency;
-            }
+        // A simple threshold to ignore noise
+        if (maxVal < -70) { 
+            return null;
+        }
+
+        // Convert the FFT bin index to a frequency
+        const frequency = maxIndex * (this.audioContext.sampleRate / this.analyser.size);
+        
+        // Ignore low-frequency noise
+        if (frequency > 500) { 
+            return frequency;
         }
 
         return null;
     }
     
-    private async listenForTone(targetFreq: number, timeout: number): Promise<boolean> {
-        return new Promise(resolve => {
-            if (!this.analyser) {
-                this.log('Анализатор не инициализирован для прослушивания тона', 'error');
-                resolve(false);
-                return;
-            }
-            const startTime = Date.now();
-            let frameId: number;
-            
-            const check = () => {
-                if (this.state === 'idle' || this.state === 'error') {
-                    if (frameId) cancelAnimationFrame(frameId);
-                    resolve(false);
-                    return;
-                }
-                const freq = this.detectFrequency();
-                if (freq && Math.abs(freq - targetFreq) < 20) {
-                    cancelAnimationFrame(frameId);
-                    resolve(true);
-                    return;
-                }
-                if (Date.now() - startTime > timeout) {
-                    cancelAnimationFrame(frameId);
-                    resolve(false);
-                    return;
-                }
-                frameId = requestAnimationFrame(check);
-            };
-            check();
-        });
+    private listenForTone(targetFreq: number, onFound: () => void) {
+        if (this.listenLoop) this.listenLoop.stop();
+
+        this.listenLoop = new Tone.Loop(time => {
+             const freq = this.detectFrequency();
+             if (freq && Math.abs(freq - targetFreq) < 20) {
+                 onFound();
+                 this.stopListeningForTone();
+             }
+        }, "16n").start(0);
+
+        Tone.Transport.start();
+    }
+    
+    private stopListeningForTone() {
+        if(this.handshakeTimeout) clearTimeout(this.handshakeTimeout);
+        this.listenLoop?.stop();
+        this.listenLoop?.dispose();
+        this.listenLoop = null;
     }
 }
