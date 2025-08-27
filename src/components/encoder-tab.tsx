@@ -12,7 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlayCircle, Volume2, Download, CircleDashed, PlusCircle, LockKeyhole } from 'lucide-react';
 import { playDtmfSequence, renderDtmfSequenceToAudioBuffer, textToDtmfSequence } from '@/lib/dtmf';
-import { playVtpSequence, renderVtpSequenceToAudioBuffer, textToVtpPacket } from '@/lib/variant2-encoder';
+import { textToVtpPacket } from '@/lib/variant2-encoder';
 import { bufferToWave } from '@/lib/wav';
 import * as Tone from 'tone';
 import {
@@ -39,7 +39,7 @@ const templates = ["Привет!", "Как дела?", "Встречаемся 
 
 export function EncoderTab() {
   const [isLoading, setIsLoading] = useState(false);
-  const [generatedSequence, setGeneratedSequence] = useState<string | number[] | null>(null);
+  const [generatedSequence, setGeneratedSequence] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isNative, setIsNative] = useState(false);
@@ -69,13 +69,13 @@ export function EncoderTab() {
     setGeneratedSequence(null);
     
     try {
+      let sequence: string;
       if (data.encodingType === 'v1') {
-        const sequence = textToDtmfSequence(data.text, addLog, data.password);
-        setGeneratedSequence(sequence);
+        sequence = textToDtmfSequence(data.text, addLog, data.password);
       } else {
-        const packet = textToVtpPacket(data.text, addLog);
-        setGeneratedSequence(packet);
+        sequence = textToVtpPacket(data.text, addLog);
       }
+      setGeneratedSequence(sequence);
     } catch (error) {
        const errorMessage = error instanceof Error ? error.message : String(error);
        toast({
@@ -97,12 +97,7 @@ export function EncoderTab() {
     setIsPlaying(true);
     addLog('Воспроизведение последовательности...');
     try {
-      const encodingType = form.getValues('encodingType');
-      if (encodingType === 'v1') {
-        await playDtmfSequence(generatedSequence as string);
-      } else {
-        await playVtpSequence(generatedSequence as number[]);
-      }
+      await playDtmfSequence(generatedSequence);
       addLog('Воспроизведение завершено.');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -181,13 +176,7 @@ export function EncoderTab() {
     setIsSaving(true);
     
     try {
-      const encodingType = form.getValues('encodingType');
-      let audioBuffer: AudioBuffer;
-      if (encodingType === 'v1') {
-        audioBuffer = await renderDtmfSequenceToAudioBuffer(generatedSequence as string);
-      } else {
-        audioBuffer = await renderVtpSequenceToAudioBuffer(generatedSequence as number[]);
-      }
+      const audioBuffer = await renderDtmfSequenceToAudioBuffer(generatedSequence);
       const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
       
       if (isNative) {
@@ -236,8 +225,8 @@ export function EncoderTab() {
                           <RadioGroupItem value="v1" />
                         </FormControl>
                         <FormLabel className="font-normal flex flex-col">
-                          <span>Вариант 1: DTMF (быстро)</span>
-                          <span className="text-xs text-muted-foreground">Быстрая передача, подходит для простых сообщений.</span>
+                          <span>Вариант 1: DTMF</span>
+                          <span className="text-xs text-muted-foreground">Быстро, с шифрованием.</span>
                         </FormLabel>
                       </FormItem>
                       <FormItem className="flex items-center space-x-3 space-y-0">
@@ -245,8 +234,8 @@ export function EncoderTab() {
                           <RadioGroupItem value="v2" />
                         </FormControl>
                          <FormLabel className="font-normal flex flex-col">
-                          <span>Вариант 2: VTP (надежно)</span>
-                           <span className="text-xs text-muted-foreground">Пакетная передача с CRC, устойчива к шуму.</span>
+                          <span>Вариант 2: VTP (DTMF)</span>
+                           <span className="text-xs text-muted-foreground">Надежно, с проверкой ошибок.</span>
                         </FormLabel>
                       </FormItem>
                     </RadioGroup>
@@ -322,7 +311,7 @@ export function EncoderTab() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="font-mono text-sm break-all bg-background p-3 rounded-md">
-                {Array.isArray(generatedSequence) ? generatedSequence.join(',') : generatedSequence}
+                {generatedSequence}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Button onClick={handlePlay} disabled={isPlaying || isSaving} className="w-full" variant="secondary">

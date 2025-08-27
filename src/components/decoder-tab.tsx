@@ -25,10 +25,10 @@ export function DecoderTab() {
   const [decodingType, setDecodingType] = useState<'v1' | 'v2'>('v1');
 
   const { toast } = useToast();
-  const { isRecording, startRecording, stopRecording } = useRecorder();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const { addLog } = useLog();
+  const { isRecording, startRecording, stopRecording } = useRecorder(addLog);
 
   const cleanup = () => {
     setDecodedResult(null);
@@ -102,12 +102,10 @@ export function DecoderTab() {
   
   const handleStartRecording = async () => {
       cleanup();
-      addLog('Запрос на начало записи...');
       await startRecording();
   }
 
   const handleStopRecording = async () => {
-    addLog('Запись с микрофона остановлена.');
     const recordResult = await stopRecording();
     if (recordResult && recordResult.blob.size > 0) {
       handleDecode(recordResult.blob, 'микрофон');
@@ -188,7 +186,7 @@ export function DecoderTab() {
               className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"
             >
               <span>Вариант 1: DTMF</span>
-              <span className="text-xs text-muted-foreground mt-1">Быстрый, для простых сообщений</span>
+              <span className="text-xs text-muted-foreground mt-1">Быстрый, с шифрованием</span>
             </Label>
           </div>
           <div>
@@ -197,7 +195,7 @@ export function DecoderTab() {
               htmlFor="r2"
               className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"
             >
-               <span>Вариант 2: VTP</span>
+               <span>Вариант 2: VTP (DTMF)</span>
                <span className="text-xs text-muted-foreground mt-1">Надежный, с проверкой ошибок</span>
             </Label>
           </div>
