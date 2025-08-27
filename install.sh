@@ -4,9 +4,9 @@
 npm cache clean --force
 
 # Удалите папку node_modules и android 
-rm -rfv node_modules
-rm -rfv node_modules
-rm -rfv android
+rm -rf node_modules
+rm -rf node_modules
+rm -rf android
 
 # Переустановите зависимости: 
 rm package-lock.json
