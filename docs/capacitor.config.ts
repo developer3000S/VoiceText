@@ -7,18 +7,7 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https',
   },
-  plugins: {
-    Keyboard: {
-      resize: 'ionic',
-      resizeOnFullScreen: true,
-    },
-  },
   android: {
-    allowMixedContent: true,
-    buildOptions: {
-      keystorePath: undefined,
-      keystoreAlias: undefined,
-    },
     permissions: [
       {
         alias: 'microphone',

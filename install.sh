@@ -2,11 +2,19 @@
 
 # Очистите кэш npm: 
 npm cache clean --force
-# Удалите папку node_modules и переустановите зависимости: 
-rm -rf node_modules && npm install
+
+# Удалите папку node_modules и android 
+rm -rfv node_modules
+rm -rfv node_modules
+rm -rfv android
+
+# Переустановите зависимости: 
+rm package-lock.json
+npm install
 
 ## Установите зависимости:
-npm install @capacitor/core@latest @capacitor/cli@latest
+npm install @capacitor/core@latest
+npm install @capacitor/cli --save-dev
 npm audit fix --force
 
 ## Соберите веб-приложение:
@@ -14,6 +22,7 @@ npm run build:mobile
 
 ## Добавьте платформу Android:
 npx cap add android
+cp -R ~/Documents/mybuild/VoiceText/VoiceText/docs/AndroidManifest.xml ~/Documents/mybuild/VoiceText/VoiceText/android/app/src/main/
 
 ## Синхронизируйте проект:
 npm run capacitor:sync
