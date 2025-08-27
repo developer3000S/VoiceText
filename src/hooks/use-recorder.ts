@@ -12,16 +12,18 @@ export const useRecorder = () => {
 
     const requestPermission = useCallback(async (): Promise<boolean> => {
         try {
+            // Запрос разрешения заставит браузер или WebView показать диалог пользователю
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            // Stop the tracks immediately after getting permission to avoid leaving the mic on.
+            // Нам не нужно держать стрим открытым, только получить разрешение
             stream.getTracks().forEach(track => track.stop());
             return true;
         } catch (error) {
             console.error("Ошибка запроса разрешений:", error);
+            const err = error as DOMException;
             toast({
                 variant: "destructive",
                 title: "Доступ к микрофону запрещен",
-                description: "Пожалуйста, предоставьте доступ к микрофону в настройках вашего устройства или браузера.",
+                description: `Пожалуйста, предоставьте доступ к микрофону в настройках. Ошибка: ${err.message}`,
             });
             return false;
         }
@@ -35,29 +37,32 @@ export const useRecorder = () => {
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            setIsRecording(true);
+            
+            // Пытаемся указать mimeType, чтобы получить WAV, если возможно
+            const options = { mimeType: 'audio/wav' };
+            let mediaRecorder;
+            try {
+                mediaRecorder = new MediaRecorder(stream, options);
+            } catch (e) {
+                console.warn('audio/wav не поддерживается, используем формат по умолчанию.');
+                mediaRecorder = new MediaRecorder(stream);
+            }
+
+            mediaRecorderRef.current = mediaRecorder;
             recordedChunksRef.current = [];
-            
-            // Explicitly try to record in WAV format if possible, otherwise fall back.
-            const mimeTypes = ['audio/wav', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus'];
-            const supportedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
-            
-            const options = supportedMimeType ? { mimeType: supportedMimeType } : undefined;
-            const recorder = new MediaRecorder(stream, options);
 
-            mediaRecorderRef.current = recorder;
-
-            recorder.ondataavailable = (event) => {
+            mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
                     recordedChunksRef.current.push(event.data);
                 }
             };
-            
-            recorder.onstop = () => {
+
+            mediaRecorder.onstop = () => {
                 stream.getTracks().forEach(track => track.stop());
             };
             
-            recorder.start();
+            mediaRecorder.start();
+            setIsRecording(true);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error("Ошибка начала записи:", errorMessage);
@@ -71,22 +76,23 @@ export const useRecorder = () => {
     }, [requestPermission, toast]);
     
     const stopRecording = useCallback(async (): Promise<Blob | null> => {
-        if (!mediaRecorderRef.current || !isRecording) {
-             return null;
-        }
-
         return new Promise((resolve) => {
-            if (mediaRecorderRef.current) {
-                mediaRecorderRef.current.onstop = () => {
-                    const mimeType = mediaRecorderRef.current?.mimeType || 'audio/wav';
-                    const blob = new Blob(recordedChunksRef.current, { type: mimeType });
-                    recordedChunksRef.current = [];
-                    setIsRecording(false);
-                    mediaRecorderRef.current = null;
-                    resolve(blob);
-                };
+            if (!mediaRecorderRef.current || !isRecording) {
+                resolve(null);
+                return;
+            }
 
-                mediaRecorderRef.current.stop();
+            mediaRecorderRef.current.onstop = () => {
+                const recordedBlob = new Blob(recordedChunksRef.current, {
+                    type: mediaRecorderRef.current?.mimeType || 'audio/wav'
+                });
+                setIsRecording(false);
+                mediaRecorderRef.current = null;
+                resolve(recordedBlob);
+            };
+
+            if (mediaRecorderRef.current.state === "recording") {
+                 mediaRecorderRef.current.stop();
             }
         });
     }, [isRecording]);

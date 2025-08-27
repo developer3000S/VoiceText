@@ -21,12 +21,16 @@ const config: CapacitorConfig = {
     },
     permissions: [
         {
+            alias: "microphone",
+            name: "android.permission.RECORD_AUDIO"
+        },
+        {
             alias: "storage",
             name: "android.permission.WRITE_EXTERNAL_STORAGE"
         },
         {
-            alias: "microphone",
-            name: "android.permission.RECORD_AUDIO"
+            alias: "internet",
+            name: "android.permission.INTERNET"
         }
     ]
   },
