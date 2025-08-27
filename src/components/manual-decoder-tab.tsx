@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Wand2, FileText, LockKeyhole, KeyRound } from 'lucide-react';
 import { useLog } from '@/context/log-context';
 import { decodeSequenceFromTones, DecodedResult as DecodedResultV1 } from '@/lib/dtmf-decoder';
-import { DecodedResult as DecodedResultV2 } from '@/lib/variant2-decoder';
+import { decodeVtpFromSequence, DecodedResult as DecodedResultV2 } from '@/lib/variant2-decoder';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Label } from './ui/label';
 
@@ -23,11 +23,14 @@ const FormSchema = z.object({
   password: z.string().optional(),
 }).refine(data => {
   if (data.decodingType === 'v1') {
-    return /^[0-9#*,\s]+$/.test(data.sequence);
+    return /^[0-9A-D#*,\s]+$/.test(data.sequence);
   }
-  return true; // No specific regex for V2 for now
+  if (data.decodingType === 'v2') {
+    return /^[01,\s]+$/.test(data.sequence);
+  }
+  return true;
 }, {
-  message: "Неверный формат последовательности DTMF для Варианта 1. Используйте цифры, *, #, разделенные запятыми.",
+  message: "Неверный формат последовательности.",
   path: ['sequence']
 });
 
@@ -44,7 +47,7 @@ export function ManualDecoderTab() {
   });
 
   const handleDecodeV1 = (sequence: string, password?: string) => {
-    const tones = sequence.split(',').map(s => s.trim()).filter(Boolean);
+    const tones = sequence.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
     addLog(`Ручной декодер (V1): запуск для последовательности "${tones.join(',')}"`);
     const result = decodeSequenceFromTones(tones, addLog, password);
     setDecodedResult(result);
@@ -60,15 +63,10 @@ export function ManualDecoderTab() {
   }
 
   const handleDecodeV2 = (sequence: string, password?: string) => {
-    addLog(`Ручной декодер (V2): запуск для последовательности...`);
-    const tones = sequence.split(',').map(s => s.trim()).filter(Boolean);
-    // V2 decoder expects to start after the preamble and *. The manual input starts with the payload.
-    // So we manually construct a sequence that the decoder expects.
-    const isEncrypted = password && password.length > 0;
-    const encryptionFlag = isEncrypted ? '1' : '0';
-    const fakeSequence = ['1','0','1','0','1','0','*', encryptionFlag, ...tones, '#'];
+    addLog(`Ручной декодер (V2): запуск для битовой последовательности...`);
+    const bits = sequence.replace(/[^01]/g, '').split('').map(b => parseInt(b, 10));
     
-    const result = decodeSequenceFromTones(fakeSequence, addLog, password, true);
+    const result = decodeVtpFromSequence(bits, addLog, password);
     setDecodedResult(result);
 
     if (result.text !== null) {
@@ -135,13 +133,13 @@ export function ManualDecoderTab() {
                         <FormControl>
                           <RadioGroupItem value="v1" id="manual_v1" />
                         </FormControl>
-                        <Label htmlFor="manual_v1">Вариант 1 (Символы)</Label>
+                        <Label htmlFor="manual_v1">Вариант 1 (Символы DTMF)</Label>
                       </FormItem>
                       <FormItem className="flex items-center space-x-2">
                         <FormControl>
                           <RadioGroupItem value="v2" id="manual_v2" />
                         </FormControl>
-                         <Label htmlFor="manual_v2">Вариант 2 (Пакет HEX)</Label>
+                         <Label htmlFor="manual_v2">Вариант 2 (Биты 0/1)</Label>
                       </FormItem>
                     </RadioGroup>
                   </FormControl>
@@ -159,8 +157,8 @@ export function ManualDecoderTab() {
                   <FormControl>
                     <Input 
                       placeholder={currentType === 'v1' 
-                        ? "3,6,7,0,6,2,..." 
-                        : "48656C6C6F..."}
+                        ? "0,0,D,0,1,D,..." 
+                        : "1,0,1,0,1,0,0,0,..."}
                       {...field} />
                   </FormControl>
                   <FormMessage />

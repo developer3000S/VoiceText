@@ -12,7 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlayCircle, Volume2, Download, CircleDashed, PlusCircle, LockKeyhole } from 'lucide-react';
 import { playDtmfSequence, renderDtmfSequenceToAudioBuffer, textToDtmfSequence } from '@/lib/dtmf';
-import { textToVtpPacket } from '@/lib/variant2-encoder';
+import { textToVtpSequence } from '@/lib/variant2-encoder';
 import { bufferToWave } from '@/lib/wav';
 import * as Tone from 'tone';
 import {
@@ -73,7 +73,7 @@ export function EncoderTab() {
       if (data.encodingType === 'v1') {
         sequence = textToDtmfSequence(data.text, addLog, data.password);
       } else {
-        sequence = textToVtpPacket(data.text, addLog, data.password);
+        sequence = textToVtpSequence(data.text, addLog, data.password);
       }
       setGeneratedSequence(sequence);
     } catch (error) {

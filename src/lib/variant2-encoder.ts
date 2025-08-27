@@ -19,14 +19,18 @@ function crc8(data: Uint8Array): number {
     return crc & 0xFF;
 }
 
-// Helper to convert a byte array to a hex string
-function bytesToHex(bytes: Uint8Array): string {
-  return bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
+// Convert a byte array to a bit string ('0' and '1')
+function bytesToBitString(bytes: Uint8Array): string {
+    let bits = '';
+    for (const byte of bytes) {
+        bits += byte.toString(2).padStart(8, '0');
+    }
+    return bits;
 }
 
 
 // --- Text to Packet Conversion ---
-export function textToVtpPacket(text: string, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): string {
+export function textToVtpSequence(text: string, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): string {
     addLog(`(V2) Начало кодирования по протоколу VTP: "${text}"`);
     
     // Convert text to UTF-8 bytes
@@ -52,10 +56,11 @@ export function textToVtpPacket(text: string, addLog: (message: string, type?: '
     // Assemble the full packet
     const fullPacketBytes = new Uint8Array([...headerBytes, ...dataBytes, ...crcByte]);
 
-    // Convert the entire packet to a hex string
-    const hexPacket = bytesToHex(fullPacketBytes);
-    addLog(`(V2) Пакет в HEX: ${hexPacket}`);
+    // Convert the entire binary packet to a string of '0's and '1's
+    const bitString = bytesToBitString(fullPacketBytes);
+    addLog(`(V2) Пакет в бинарном виде: ${bitString}`);
     
-    // Use the main DTMF sequence generator, which now handles preambles and passwords
-    return textToDtmfSequence(hexPacket, addLog, password, true);
+    // Use the main DTMF sequence generator, passing the bit string as the payload.
+    // The V1 encoder will handle passwords and framing (*, #, preamble).
+    return textToDtmfSequence(bitString, addLog, password, true); // isV2 = true
 }

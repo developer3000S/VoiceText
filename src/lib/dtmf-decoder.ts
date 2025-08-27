@@ -85,10 +85,9 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
     return DTMF_MAP[`${detectedLowFreq},${detectedHighFreq}`] || null;
 }
 
-export function decodeSequenceFromTones(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string, isV2Hex: boolean = false): DecodedResult {
+export function decodeSequenceFromTones(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string, isV2: boolean = false): DecodedResult {
     addLog(`Запуск декодирования последовательности: [${sequence.join(',')}]`);
 
-    // Find the preamble 1,0,1,0,1,0 and then *
     let preambleFound = false;
     let startIdx = -1;
     for (let i = 0; i <= sequence.length - 7; i++) {
@@ -102,7 +101,7 @@ export function decodeSequenceFromTones(sequence: string[], addLog: (message: st
             sequence[i + 6] === '*'
         ) {
             preambleFound = true;
-            startIdx = i + 6; // Index of '*'
+            startIdx = i + 6; 
             break;
         }
     }
@@ -115,7 +114,6 @@ export function decodeSequenceFromTones(sequence: string[], addLog: (message: st
     
     addLog(`Преамбула и стартовый символ * найдены. Начало пакета на позиции ${startIdx}.`);
     
-    // Check for header (encryption flag)
     if (sequence.length <= startIdx + 1) {
         const err = 'Последовательность слишком короткая, отсутствует заголовок.';
         addLog(err, 'error');
@@ -126,7 +124,7 @@ export function decodeSequenceFromTones(sequence: string[], addLog: (message: st
     const isEncrypted = encryptionFlag === '1';
     addLog(`Флаг шифрования: ${encryptionFlag}. Сообщение ${isEncrypted ? 'зашифровано' : 'не зашифровано'}.`);
 
-    let payload = sequence.slice(startIdx + 2); // Skip * and encryption flag
+    let payload = sequence.slice(startIdx + 2); 
 
     const endIdx = payload.lastIndexOf('#');
     if (endIdx === -1) {
@@ -142,7 +140,7 @@ export function decodeSequenceFromTones(sequence: string[], addLog: (message: st
         return { text: null, requiresPassword: true, extractedTones: sequence };
     }
 
-    const text = dtmfToText(payload, isEncrypted, addLog, password, isV2Hex);
+    const text = dtmfToText(payload, isEncrypted, addLog, password, isV2);
     
     if (text === null && isEncrypted) {
          return { text: null, requiresPassword: true, error: 'Ошибка расшифровки. Неверный пароль?', extractedTones: sequence };
@@ -164,7 +162,7 @@ async function getAudioContext(blob: Blob): Promise<AudioBuffer> {
      }
 }
 
-export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string, isV2Hex: boolean = false): Promise<DecodedResult> {
+export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string, isV2: boolean = false): Promise<DecodedResult> {
     try {
         const originalAudioBuffer = await getAudioContext(blob);
         addLog(`Аудиофайл успешно загружен. Длительность: ${originalAudioBuffer.duration.toFixed(2)}с, Частота: ${originalAudioBuffer.sampleRate}Гц`);
@@ -229,7 +227,7 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
             }
         }
         
-        const decoded = decodeSequenceFromTones(detectedTones, addLog, password, isV2Hex);
+        const decoded = decodeSequenceFromTones(detectedTones, addLog, password, isV2);
         return decoded;
 
     } catch(error) {
