@@ -13,6 +13,27 @@ function xorEncryptDecrypt(text: string, key: string): string {
     return result;
 }
 
+// Unicode-совместимое кодирование в Base64
+function toBase64(str: string): string {
+    const buffer = new TextEncoder().encode(str);
+    let binary = '';
+    for (let i = 0; i < buffer.length; i++) {
+        binary += String.fromCharCode(buffer[i]);
+    }
+    return btoa(binary);
+}
+
+// Unicode-совместимое декодирование из Base64
+function fromBase64(base64: string): string {
+    const binary_string = atob(base64);
+    const bytes = new Uint8Array(binary_string.length);
+    for (let i = 0; i < binary_string.length; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
+    }
+    return new TextDecoder().decode(bytes);
+}
+
+
 export const DTMF_FREQUENCIES: { [key: string]: [number, number] } = {
   '1': [697, 1209], '2': [697, 1336], '3': [697, 1477],
   '4': [770, 1209], '5': [770, 1336], '6': [770, 1477],
@@ -50,7 +71,7 @@ export function textToDtmfSequence(text: string, addLog: (message: string, type?
         addLog(`Шифрование текста с паролем...`);
         processedText = xorEncryptDecrypt(text, password);
         // Base64 encode to handle any non-standard characters from XOR
-        processedText = btoa(processedText);
+        processedText = toBase64(processedText);
         addLog(`Текст зашифрован и закодирован в Base64.`);
     }
 
@@ -98,7 +119,7 @@ export function dtmfToText(sequence: string[], isEncrypted: boolean, addLog: (me
     if (isEncrypted && password) {
         try {
             addLog('Сообщение зашифровано. Расшифровка...');
-            const decodedFromBase64 = atob(encodedText);
+            const decodedFromBase64 = fromBase64(encodedText);
             const decryptedText = xorEncryptDecrypt(decodedFromBase64, password);
             addLog('Расшифровка завершена.');
             return decryptedText;
