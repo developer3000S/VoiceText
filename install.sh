@@ -9,7 +9,7 @@ rm -rf node_modules
 rm -rf android
 
 # Переустановите зависимости: 
-rm package-lock.json
+#rm package-lock.json
 npm install
 
 ## Установите зависимости:
