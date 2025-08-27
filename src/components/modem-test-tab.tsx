@@ -124,6 +124,9 @@ const ModemInstance = ({ id, modem, isConnected, addLog }: { id: string, modem: 
 export function ModemTestTab() {
   const { addLog } = useLog();
   const [isConnected, setIsConnected] = useState(false);
+  
+  // Create a single shared audio context for both modems.
+  const sharedAudioContext = useMemo(() => new Tone.Context(), []);
 
   const modemA = useMemo(() => new Modem((s) => {}, (d) => {}, addLog, 'A'), [addLog]);
   const modemB = useMemo(() => new Modem((s) => {}, (d) => {}, addLog, 'B'), [addLog]);
@@ -131,12 +134,12 @@ export function ModemTestTab() {
   const connectModems = useCallback(async () => {
     addLog('Соединение виртуальных модемов...');
     
-    await Tone.start();
+    // Ensure the shared context is running
+    await sharedAudioContext.resume();
     
-    // Initialize both modems without mic input.
-    // They will use the same master audio context from Tone.js
-    await modemA.initialize({ ensureMic: false });
-    await modemB.initialize({ ensureMic: false });
+    // Initialize both modems with the same shared context and no mic input.
+    await modemA.initialize(sharedAudioContext, { ensureMic: false });
+    await modemB.initialize(sharedAudioContext, { ensureMic: false });
 
     // Connect the output of each modem to the input of the other.
     if (modemA.gainNode && modemB.gainNode) {
@@ -149,7 +152,7 @@ export function ModemTestTab() {
         addLog('Ошибка: не удалось инициализировать аудио узлы для соединения.', 'error');
     }
 
-  }, [addLog, modemA, modemB]);
+  }, [addLog, modemA, modemB, sharedAudioContext]);
 
   const disconnectModems = useCallback(() => {
     if (!isConnected) return;

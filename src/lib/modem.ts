@@ -29,7 +29,7 @@ export class Modem {
     private microphoneStream: MediaStream | null = null;
     private synth: Tone.Synth | null = null;
     public gainNode: Tone.Gain | null = null;
-    private inputSource: MediaStreamAudioSourceNode | null = null;
+    private inputSource: MediaStreamAudioSourceNode | Tone.Gain | null = null;
 
     public onStateChange: (newState: ModemState) => void;
     public onDataReceived: (data: string) => void;
@@ -64,15 +64,15 @@ export class Modem {
         this.onStateChange(newState);
     }
 
-    async initialize(options: { context?: Tone.Context, ensureMic?: boolean } = {}) {
-        const { context, ensureMic = true } = options;
+    async initialize(context: Tone.Context, options: { ensureMic?: boolean } = {}) {
+        const { ensureMic = true } = options;
 
         if (this.audioContext && this.audioContext.state === 'running') {
             if (ensureMic) await this.ensureMicInput();
             return;
         }
 
-        this.audioContext = context || new Tone.Context();
+        this.audioContext = context;
         await this.audioContext.resume();
 
         this.analyser = new Tone.FFT({
@@ -106,11 +106,8 @@ export class Modem {
         }
     }
     
-    connectInput(sourceNode: Tone.Gain, partner?: Modem) {
+    connectInput(sourceNode: Tone.Gain) {
         sourceNode.connect(this.analyser);
-        if (partner) {
-            this.partnerModem = partner;
-        }
         this.log(`Вход соединен с другим модемом`);
     }
 
@@ -123,7 +120,6 @@ export class Modem {
               this.log('Ошибка при отсоединении входа, возможно уже отсоединен', 'warning');
             }
         }
-        this.partnerModem = null;
     }
 
     async start(mode: ModemMode) {
@@ -135,7 +131,7 @@ export class Modem {
             return;
         }
         
-        if(!this.inputSource && !this.partnerModem) {
+        if(!this.inputSource) {
             try {
                 await this.ensureMicInput();
             } catch (e) {

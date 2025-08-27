@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Speaker } from 'lucide-react';
+import * as Tone from 'tone';
 
 const templates = ["Привет!", "Как дела?", "Встречаемся в 15:00."];
 
@@ -40,11 +41,7 @@ export function ModemTab() {
 
   const checkAndRequestPermission = async (): Promise<boolean> => {
     try {
-      // Check for permission by trying to get a stream.
-      // This will trigger the browser's permission prompt if not already granted.
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // We don't need the stream itself, just to know we can get it.
-      // Stop the tracks immediately to turn off the microphone indicator.
       stream.getTracks().forEach(track => track.stop());
       return true;
     } catch (error) {
@@ -62,7 +59,7 @@ export function ModemTab() {
     const hasPermission = await checkAndRequestPermission();
     if (!hasPermission) return;
     
-    await modem.initialize();
+    await modem.initialize(new Tone.Context());
     modem.start(ModemMode.ANSWER);
   };
 
@@ -70,7 +67,7 @@ export function ModemTab() {
     const hasPermission = await checkAndRequestPermission();
     if (!hasPermission) return;
 
-    await modem.initialize();
+    await modem.initialize(new Tone.Context());
     modem.start(ModemMode.CALL);
   };
 
