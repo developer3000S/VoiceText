@@ -14,11 +14,15 @@ const config: CapacitorConfig = {
         name: 'android.permission.RECORD_AUDIO',
       },
       {
-        alias: 'storage',
+        alias: 'audio_setting',
+        name: 'android.permission.MODIFY_AUDIO_SETTINGS'
+      }
+      {
+        alias: 'storage_read',
         name: 'android.permission.READ_EXTERNAL_STORAGE',
       },
       {
-        alias: 'storage',
+        alias: 'storage_write',
         name: 'android.permission.WRITE_EXTERNAL_STORAGE',
       },
       {
