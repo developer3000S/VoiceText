@@ -14,7 +14,7 @@ const FREQ_1 = 2000;
 const POSTAMBLE_FREQ = 1500;
 
 const FREQ_THRESHOLD = 50;
-const GOERTZEL_THRESHOLD = 1e6; // Significantly lowered threshold for better sensitivity
+const GOERTZEL_THRESHOLD = 1e5; // Recalibrated threshold for better sensitivity in noisy conditions
 
 export interface DecodedResult {
     text: string | null;
@@ -87,12 +87,11 @@ function findPreamble(data: Float32Array, addLog: (msg: string, type?: any) => v
     const goertzel1 = new Goertzel(FREQ_1, SAMPLE_RATE);
     
     let lastBit = -1;
-    let preambleCount = 0;
+    let alternatingBitsCount = 0;
 
-    // Use a smaller step for a sliding window approach to not miss the start
-    const step = Math.floor(preambleChunkSize / 4);
+    const step = Math.floor(preambleChunkSize / 2); // Check more frequently
 
-    for (let i = 0; i < data.length - preambleChunkSize; i += step) {
+    for (let i = 0; i <= data.length - preambleChunkSize; i += step) {
         const chunk = data.slice(i, i + preambleChunkSize);
         
         goertzel0.reset();
@@ -105,33 +104,34 @@ function findPreamble(data: Float32Array, addLog: (msg: string, type?: any) => v
         const power1 = goertzel1.getPower();
 
         let currentBit = -1;
-        if (power1 > GOERTZEL_THRESHOLD && power1 > power0) {
+        if (power1 > GOERTZEL_THRESHOLD && power1 > power0 * 1.2) { // Be more certain it's a 1
             currentBit = 1;
-        } else if (power0 > GOERTZEL_THRESHOLD && power0 > power1) {
+        } else if (power0 > GOERTZEL_THRESHOLD && power0 > power1 * 1.2) { // Be more certain it's a 0
             currentBit = 0;
         }
 
         if (currentBit !== -1) {
-            if (preambleCount === 0 && currentBit === 1) { // Preamble must start with 1
-                preambleCount = 1;
+            // Preamble must start with 1
+            if (alternatingBitsCount === 0 && currentBit === 1) {
+                alternatingBitsCount = 1;
                 lastBit = 1;
-            } else if (preambleCount > 0 && currentBit !== lastBit) {
-                preambleCount++;
+            } 
+            // If we have started, and the current bit is different from the last one
+            else if (alternatingBitsCount > 0 && currentBit !== lastBit) {
+                alternatingBitsCount++;
                 lastBit = currentBit;
-                if (preambleCount >= PREAMBLE_BITS) {
-                    addLog(`Преамбула найдена на позиции ${i + preambleChunkSize} семплов.`, 'info');
-                    return i + preambleChunkSize; // Return the position AFTER the preamble
+                // We'll be more lenient: accept if we get at least 14 correct alternating bits
+                if (alternatingBitsCount >= 14) { 
+                    const preambleEndIndex = i + preambleChunkSize + ((PREAMBLE_BITS - alternatingBitsCount) * preambleChunkSize);
+                    addLog(`Преамбула найдена с ${alternatingBitsCount}/16 бит на позиции ${preambleEndIndex} семплов.`, 'info');
+                    return preambleEndIndex; // Return the position AFTER the full preamble
                 }
-            } else if (preambleCount > 0 && currentBit === lastBit) {
-                 // The bit is the same, this breaks the 101010 pattern, so reset.
-                 preambleCount = 0;
+            } 
+            // If the alternating pattern is broken, reset
+            else if (alternatingBitsCount > 0 && currentBit === lastBit) {
+                 alternatingBitsCount = 0;
                  lastBit = -1;
             }
-             else {
-                preambleCount = 0; // Reset if the pattern is not met
-            }
-        } else {
-            preambleCount = 0; // Reset if no clear bit is detected
         }
     }
     addLog('Преамбула не найдена.', 'error');
@@ -211,6 +211,9 @@ export async function decodeVtpFromAudio(blob: Blob, addLog: (message: string, t
 
         if (dataLength === 0) {
              return { text: "Пустой пакет получен.", error: undefined };
+        }
+        if (dataLength > 255) {
+             return { text: null, error: `Неверная длина данных: ${dataLength}.` };
         }
         
         // 2. Read Data
