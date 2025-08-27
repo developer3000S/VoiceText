@@ -125,23 +125,28 @@ export function ModemTestTab() {
   const { addLog } = useLog();
   const [isConnected, setIsConnected] = useState(false);
   
-  // Create a single shared audio context for both modems.
-  const sharedAudioContext = useMemo(() => new AudioContext(), []);
-
   const modemA = useMemo(() => new Modem((s) => {}, (d) => {}, addLog, 'A'), [addLog]);
   const modemB = useMemo(() => new Modem((s) => {}, (d) => {}, addLog, 'B'), [addLog]);
+  const sharedAudioContextRef = useRef<AudioContext | null>(null);
 
   const connectModems = useCallback(async () => {
     addLog('Соединение виртуальных модемов...');
     
-    // Ensure the shared context is running
-    if (sharedAudioContext.state === 'suspended') {
-        await sharedAudioContext.resume();
+    // Create and resume the shared audio context on user gesture
+    if (!sharedAudioContextRef.current) {
+        sharedAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
     
+    if (sharedAudioContextRef.current.state === 'suspended') {
+        await sharedAudioContextRef.current.resume();
+        addLog('AudioContext возобновлен.');
+    }
+    
+    const audioCtx = sharedAudioContextRef.current;
+    
     // Initialize both modems with the same shared context and no mic input.
-    await modemA.initialize(sharedAudioContext, { ensureMic: false });
-    await modemB.initialize(sharedAudioContext, { ensureMic: false });
+    await modemA.initialize(audioCtx, { ensureMic: false });
+    await modemB.initialize(audioCtx, { ensureMic: false });
 
     // Connect the output of each modem to the input of the other.
     const modemAOutput = modemA.getOutputNode();
@@ -157,7 +162,7 @@ export function ModemTestTab() {
         addLog('Ошибка: не удалось получить аудио узлы для соединения.', 'error');
     }
 
-  }, [addLog, modemA, modemB, sharedAudioContext]);
+  }, [addLog, modemA, modemB]);
 
   const disconnectModems = useCallback(() => {
     if (!isConnected) return;
