@@ -9,7 +9,8 @@ rm -rf node_modules
 rm -rf android
 
 # Переустановите зависимости: 
-#rm package-lock.json
+rm package-lock.json
+npm install --legacy-peer-deps
 npm install
 
 ## Установите зависимости:
