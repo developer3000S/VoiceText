@@ -1,83 +1,60 @@
 
 "use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useToast } from './use-toast';
 import { VoiceRecorder } from 'capacitor-voice-recorder';
+import { Capacitor } from '@capacitor/core';
 
 export const useRecorder = () => {
     const { toast } = useToast();
     const [isRecording, setIsRecording] = useState(false);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
 
-    const checkPermission = async (): Promise<boolean> => {
+    // --- Native (Capacitor) Implementation ---
+
+    const checkNativePermission = async (): Promise<boolean> => {
         try {
             const { value: status } = await VoiceRecorder.getAudioRecordingPermissionStatus();
             return status === 'granted';
         } catch (error) {
-            console.error("Ошибка проверки разрешений:", error);
-            toast({
-                variant: "destructive",
-                title: "Ошибка разрешений",
-                description: "Не удалось проверить доступ к микрофону.",
-            });
+            console.error("Ошибка проверки разрешений (native):", error);
             return false;
         }
     };
     
-    const requestPermission = async (): Promise<boolean> => {
+    const requestNativePermission = async (): Promise<boolean> => {
         try {
-            const permissionGranted = await VoiceRecorder.requestAudioRecordingPermission();
-            if (!permissionGranted) {
-                toast({
-                    variant: "destructive",
-                    title: "Доступ к микрофону запрещен",
-                    description: "Пожалуйста, предоставьте доступ к микрофону в настройках приложения.",
-                });
+            const result = await VoiceRecorder.requestAudioRecordingPermission();
+            if (!result) {
+                 toast({ variant: "destructive", title: "Доступ к микрофону запрещен" });
             }
-            return permissionGranted;
+            return result;
         } catch (error) {
-            console.error("Ошибка запроса разрешений:", error);
-            toast({
-                variant: "destructive",
-                title: "Ошибка разрешений",
-                description: "Не удалось запросить доступ к микрофону.",
-            });
+            console.error("Ошибка запроса разрешений (native):", error);
             return false;
         }
     };
 
-    const startRecording = useCallback(async () => {
-        let hasPermission = await checkPermission();
+    const startNativeRecording = async () => {
+        let hasPermission = await checkNativePermission();
         if (!hasPermission) {
-            hasPermission = await requestPermission();
+            hasPermission = await requestNativePermission();
         }
-
-        if (!hasPermission) {
-            return;
-        }
+        if (!hasPermission) return;
 
         try {
             await VoiceRecorder.startRecording();
             setIsRecording(true);
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error("Ошибка начала записи:", errorMessage);
-            toast({
-              variant: "destructive",
-              title: "Ошибка записи",
-              description: `Не удалось начать запись: ${errorMessage}`,
-            });
-            setIsRecording(false);
+            toast({ variant: "destructive", title: "Ошибка записи", description: `Не удалось начать запись: ${(error as Error).message}` });
         }
-    }, [toast]);
-    
-    const stopRecording = useCallback(async (): Promise<{ blob: Blob, audioUrl: string } | null> => {
-        if (!isRecording) {
-            return null;
-        }
+    };
+
+    const stopNativeRecording = async (): Promise<{ blob: Blob, audioUrl: string } | null> => {
         try {
             const result = await VoiceRecorder.stopRecording();
-            setIsRecording(false);
             if (result.value && result.value.recordDataBase64) {
                  const base64Sound = result.value.recordDataBase64;
                  const mimeType = result.value.mimeType || 'audio/wav';
@@ -89,10 +66,71 @@ export const useRecorder = () => {
                  return { blob, audioUrl };
             }
             return null;
-        } catch (error) {
-            console.error("Ошибка остановки записи:", error);
+        } finally {
             setIsRecording(false);
-            return null;
+        }
+    };
+
+    // --- Web API Implementation ---
+
+    const startWebRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/wav' });
+            audioChunksRef.current = [];
+
+            mediaRecorderRef.current.ondataavailable = (event) => {
+                audioChunksRef.current.push(event.data);
+            };
+
+            mediaRecorderRef.current.start();
+            setIsRecording(true);
+
+        } catch (err) {
+            console.error("Ошибка запроса разрешений (web):", err);
+            toast({ variant: 'destructive', title: 'Ошибка доступа', description: 'Не удалось получить доступ к микрофону.'});
+        }
+    };
+
+    const stopWebRecording = async (): Promise<{ blob: Blob, audioUrl: string } | null> => {
+        return new Promise(resolve => {
+            if (!mediaRecorderRef.current) {
+                resolve(null);
+                return;
+            }
+            
+            mediaRecorderRef.current.onstop = () => {
+                const blob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(blob);
+                
+                // Stop all tracks to turn off the microphone indicator
+                mediaRecorderRef.current?.stream.getTracks().forEach(track => track.stop());
+
+                resolve({ blob, audioUrl });
+            };
+            
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+        });
+    };
+
+    // --- Unified Interface ---
+
+    const startRecording = useCallback(async () => {
+        if (Capacitor.isNativePlatform()) {
+            await startNativeRecording();
+        } else {
+            await startWebRecording();
+        }
+    }, []);
+    
+    const stopRecording = useCallback(async (): Promise<{ blob: Blob, audioUrl: string } | null> => {
+        if (!isRecording) return null;
+        
+        if (Capacitor.isNativePlatform()) {
+            return await stopNativeRecording();
+        } else {
+            return await stopWebRecording();
         }
     }, [isRecording]);
 
