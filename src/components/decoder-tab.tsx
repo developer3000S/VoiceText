@@ -213,7 +213,7 @@ export function DecoderTab() {
             ref={fileInputRef}
             onChange={handleFileChange}
             className="hidden"
-            accept="audio/wav,audio/mp3,audio/webm,audio/ogg,audio/*"
+            accept="audio/*"
         />
 
         {(isLoading || decodedResult !== null || recordedBlob) && (

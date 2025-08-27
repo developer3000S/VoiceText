@@ -44,9 +44,9 @@ export const useRecorder = () => {
             const result = await VoiceRecorder.stopRecording();
             if (result.value && result.value.recordDataBase64) {
                  const base64Sound = result.value.recordDataBase64;
-                 const mimeType = result.value.mimeType || 'audio/wav';
+                 const mimeType = result.value.mimeType || 'audio/aac';
                  const blob = new Blob(
-                    [Uint8Array.from(atob(base64Sound), c => c.charCodeAt(0))], 
+                    [Uint8Array.from(atob(base64Sound), c => c.charCodeAt(0))],
                     { type: mimeType }
                  );
                  const audioUrl = URL.createObjectURL(blob);
@@ -63,7 +63,8 @@ export const useRecorder = () => {
     const startWebRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/wav' });
+            // Let the browser use its default supported mimeType, which is more robust.
+            mediaRecorderRef.current = new MediaRecorder(stream);
             audioChunksRef.current = [];
 
             mediaRecorderRef.current.ondataavailable = (event) => {
@@ -75,7 +76,8 @@ export const useRecorder = () => {
 
         } catch (err) {
             console.error("Ошибка запроса разрешений (web):", err);
-            toast({ variant: 'destructive', title: 'Ошибка доступа', description: 'Не удалось получить доступ к микрофону.'});
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            toast({ variant: 'destructive', title: 'Ошибка доступа', description: `Не удалось получить доступ к микрофону. ${errorMessage}`});
         }
     };
 
@@ -87,7 +89,8 @@ export const useRecorder = () => {
             }
             
             mediaRecorderRef.current.onstop = () => {
-                const blob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+                // The mimeType will be whatever the browser chose, e.g., 'audio/webm' or 'audio/ogg'
+                const blob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType });
                 const audioUrl = URL.createObjectURL(blob);
                 
                 // Stop all tracks to turn off the microphone indicator
