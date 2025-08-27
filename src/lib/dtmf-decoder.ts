@@ -88,13 +88,32 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
 export function decodeSequenceFromTones(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): DecodedResult {
     addLog(`Запуск декодирования последовательности: [${sequence.join(',')}]`);
 
-    const startIdx = sequence.indexOf('*');
-    if (startIdx === -1) {
-        const err = 'Стартовый символ * не найден. Декодирование невозможно.';
+    // Ищем преамбулу 1,0,1,0,1,0 и затем *
+    let preambleFound = false;
+    let startIdx = -1;
+    for (let i = 0; i <= sequence.length - 7; i++) {
+        if (
+            sequence[i] === '1' &&
+            sequence[i + 1] === '0' &&
+            sequence[i + 2] === '1' &&
+            sequence[i + 3] === '0' &&
+            sequence[i + 4] === '1' &&
+            sequence[i + 5] === '0' &&
+            sequence[i + 6] === '*'
+        ) {
+            preambleFound = true;
+            startIdx = i + 6; // Индекс символа '*'
+            break;
+        }
+    }
+
+    if (!preambleFound || startIdx === -1) {
+        const err = 'Преамбула и стартовый символ * не найдены. Декодирование невозможно.';
         addLog(err, 'error');
         return { text: null, requiresPassword: false, error: err, extractedTones: sequence };
     }
-    addLog(`Стартовый символ * найден на позиции ${startIdx}.`);
+    
+    addLog(`Преамбула и стартовый символ * найдены. Начало пакета на позиции ${startIdx}.`);
     
     // Check for header (encryption flag)
     if (sequence.length <= startIdx + 1) {

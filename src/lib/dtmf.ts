@@ -3,6 +3,7 @@ import * as Tone from 'tone';
 
 const TONE_DURATION = 0.05; 
 const PAUSE_DURATION = 0.025; 
+const PREAMBLE_SEQUENCE = '1,0,1,0,1,0'; // Добавлена преамбула для синхронизации
 
 // --- Шифрование ---
 function xorEncryptDecrypt(text: string, key: string): string {
@@ -102,9 +103,9 @@ export function textToDtmfSequence(text: string, addLog: (message: string, type?
         }
     }
     
-    // Header: * + (0 for unencrypted, 1 for encrypted) + payload + #
+    // Header: Preamble + * + (0 for unencrypted, 1 for encrypted) + payload + #
     const encryptionFlag = isEncrypted ? '1' : '0';
-    const finalSequence = ['*', encryptionFlag, ...payloadSequence, '#'].join(',');
+    const finalSequence = [PREAMBLE_SEQUENCE, '*', encryptionFlag, ...payloadSequence, '#'].join(',');
     addLog(`Кодирование завершено. Итоговая последовательность: ${finalSequence}`);
     return finalSequence;
 }
