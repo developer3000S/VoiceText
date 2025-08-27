@@ -97,6 +97,7 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
     const endIdx = payload.lastIndexOf('#');
     if (endIdx === -1) {
         addLog('Стоповый символ # не найден. Сообщение может быть неполным.', 'warning');
+        return null; // Strict mode: if no end symbol, message is invalid
     } else {
         addLog(`Стоповый символ # найден. Обрезаем пакет данных.`);
         payload = payload.slice(0, endIdx);
@@ -181,10 +182,9 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
         
         const data = filteredBuffer.getChannelData(0);
         const toneSamples = Math.floor(SAMPLE_RATE * (TONE_DURATION_MS / 1000));
-        const pauseSamples = Math.floor(SAMPLE_RATE * (PAUSE_DURATION_MS / 1000));
         const stepSamples = Math.floor(toneSamples / 4);
         
-        addLog(`Анализ аудио... Длительность тона: ${toneSamples} семплов, Пауза: ${pauseSamples} семплов`);
+        addLog(`Анализ аудио... Длительность тона: ${toneSamples} семплов, Шаг анализа: ${stepSamples} семплов`);
 
         const detectedTones: string[] = [];
         let lastTone: string | null = null;
@@ -204,10 +204,6 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
                     addLog(`Обнаружен тон: '${currentTone}' на ${currentTime.toFixed(0)}мс`);
                     lastTone = currentTone;
                     lastToneTime = currentTime;
-                     if (currentTone === '#') {
-                        addLog("Обнаружен стоповый символ '#'. Завершение анализа.");
-                        break; 
-                    }
                     i += toneSamples; // Jump forward by a full tone duration
                 } else {
                     i += stepSamples; // Move forward by a smaller step

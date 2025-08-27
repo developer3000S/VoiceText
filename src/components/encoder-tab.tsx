@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useLog } from '@/context/log-context';
 import { Capacitor } from '@capacitor/core';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 
 
 const FormSchema = z.object({
@@ -35,6 +36,7 @@ export function EncoderTab() {
   const [dtmfSequence, setDtmfSequence] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isNative, setIsNative] = useState(false);
   const { toast } = useToast();
   const { addLog } = useLog();
 
@@ -42,6 +44,10 @@ export function EncoderTab() {
     resolver: zodResolver(FormSchema),
     defaultValues: { text: '' },
   });
+  
+  useEffect(() => {
+    setIsNative(Capacitor.isNativePlatform());
+  }, []);
 
   const startAudioContext = async () => {
     if (Tone.context.state !== 'running') {
@@ -101,17 +107,6 @@ export function EncoderTab() {
     addLog('Сохранение аудиофайла...');
 
     try {
-      if (Capacitor.isNativePlatform()) {
-         toast({
-              title: "Функция недоступна",
-              description: "Сохранение файлов на мобильном устройстве временно отключено.",
-              variant: "destructive"
-            });
-         addLog('Попытка сохранения на нативном устройстве, функция отключена.', 'warning');
-         setIsSaving(false);
-         return;
-      }
-      
       const audioBuffer = await renderDtmfSequenceToAudioBuffer(dtmfSequence);
       const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
       const url = URL.createObjectURL(wavBlob);
@@ -208,17 +203,35 @@ export function EncoderTab() {
                     </>
                   )}
                 </Button>
-                <Button onClick={handleSave} disabled={isSaving || isPlaying || Capacitor.isNativePlatform()} className="w-full" variant="outline">
-                   {isSaving ? (
-                    <>
-                      <CircleDashed className="mr-2 h-4 w-4 animate-spin" /> Сохранение...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="mr-2 h-4 w-4" /> Сохранить файл
-                    </>
-                  )}
-                </Button>
+                 <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="w-full">
+                           <Button 
+                             onClick={handleSave} 
+                             disabled={isSaving || isPlaying || isNative} 
+                             className="w-full" 
+                             variant="outline"
+                           >
+                            {isSaving ? (
+                              <>
+                                <CircleDashed className="mr-2 h-4 w-4 animate-spin" /> Сохранение...
+                              </>
+                            ) : (
+                              <>
+                                <Download className="mr-2 h-4 w-4" /> Сохранить файл
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </TooltipTrigger>
+                      {isNative && (
+                         <TooltipContent>
+                           <p>Сохранение файлов на мобильных устройствах недоступно.</p>
+                         </TooltipContent>
+                      )}
+                    </Tooltip>
+                 </TooltipProvider>
               </div>
             </CardContent>
           </Card>
