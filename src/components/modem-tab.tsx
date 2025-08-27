@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
@@ -15,89 +15,72 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Alert, AlertDescription, AlertTitle } from './ui/alert';
+import { Speaker } from 'lucide-react';
 
 const templates = ["Привет!", "Как дела?", "Встречаемся в 15:00."];
 
 export function ModemTab() {
-  const [modem, setModem] = useState<Modem | null>(null);
-  const [modemState, setModemState] = useState<ModemState>('idle');
-  const [receivedText, setReceivedText] = useState('');
-  const [textToSend, setTextToSend] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-
   const { addLog } = useLog();
   const { toast } = useToast();
 
-  const handleStateChange = useCallback((newState: ModemState) => {
-    setModemState(newState);
-    addLog(`Статус модема: ${newState}`);
-    if (['idle', 'error'].includes(newState)) {
-      setIsLoading(false);
-    }
+  const modem = useMemo(() => {
+    return new Modem((newState) => {
+      setModemState(newState);
+      addLog(`Статус модема: ${newState}`);
+    }, (data) => {
+      setReceivedText((prev) => prev + data);
+      addLog(`Получены данные: "${data}"`);
+    }, addLog, 'A');
   }, [addLog]);
 
-  const handleDataReceived = useCallback((data: string) => {
-    setReceivedText((prev) => prev + data);
-    addLog(`Получен символ: "${data}"`);
-  }, [addLog]);
+  const [modemState, setModemState] = useState<ModemState>('idle');
+  const [receivedText, setReceivedText] = useState('');
+  const [textToSend, setTextToSend] = useState('');
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const initializeModem = useCallback(async () => {
+    if (isInitialized) return true;
     try {
-      const newModem = new Modem(handleStateChange, handleDataReceived, addLog);
-      await newModem.initialize();
-      setModem(newModem);
-      return newModem;
+      await modem.initialize();
+      setIsInitialized(true);
+      return true;
     } catch (error) {
       const msg = `Ошибка инициализации модема: ${(error as Error).message}`;
       addLog(msg, 'error');
       toast({ variant: 'destructive', title: 'Ошибка', description: msg });
-      return null;
+      return false;
     }
-  }, [handleStateChange, handleDataReceived, addLog, toast]);
-
+  }, [modem, addLog, toast, isInitialized]);
+  
   const startAnswering = async () => {
-    setIsLoading(true);
-    let m = modem;
-    if (!m) {
-      m = await initializeModem();
-    }
-    if (m) {
-      m.start(ModemMode.ANSWER);
-    } else {
-      setIsLoading(false);
-    }
+    const ready = await initializeModem();
+    if (ready) modem.start(ModemMode.ANSWER);
   };
 
   const startCalling = async () => {
-    setIsLoading(true);
-    let m = modem;
-    if (!m) {
-      m = await initializeModem();
-    }
-    if (m) {
-      m.start(ModemMode.CALL);
-    } else {
-      setIsLoading(false);
-    }
+    const ready = await initializeModem();
+    if (ready) modem.start(ModemMode.CALL);
   };
 
   const handleHangup = () => {
-    modem?.hangup();
+    modem.hangup();
   };
 
   const handleSend = () => {
     if (textToSend && modemState === 'connected') {
-      modem?.send(textToSend);
+      modem.send(textToSend);
       setTextToSend('');
     }
   };
 
   useEffect(() => {
     return () => {
-      modem?.hangup();
+      modem.hangup();
     };
   }, [modem]);
 
+  const isConnecting = modemState === 'calling' || modemState === 'answering' || modemState === 'handshake';
   const isConnected = modemState === 'connected';
   const isIdle = modemState === 'idle' || modemState === 'error';
 
@@ -108,13 +91,22 @@ export function ModemTab() {
         <CardDescription>Установите соединение для посимвольной передачи текста.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+
+        <Alert variant="default" className="bg-primary/10 border-primary/20">
+          <Speaker className="h-5 w-5 text-primary" />
+          <AlertTitle className="font-semibold text-primary">Важная инструкция</AlertTitle>
+          <AlertDescription>
+            Для работы модема включите **громкую связь** на телефоне. Одно устройство должно **Отвечать**, второе — **Вызывать**.
+          </AlertDescription>
+        </Alert>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Button onClick={startCalling} disabled={!isIdle || isLoading}>
-            {isLoading && modemState !== 'answering' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PhoneCall className="mr-2 h-4 w-4" />}
+          <Button onClick={startCalling} disabled={!isIdle}>
+            {isConnecting && modem.mode === ModemMode.CALL ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PhoneCall className="mr-2 h-4 w-4" />}
             Вызвать
           </Button>
-          <Button onClick={startAnswering} variant="secondary" disabled={!isIdle || isLoading}>
-            {isLoading && modemState === 'answering' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PhoneIncoming className="mr-2 h-4 w-4" />}
+          <Button onClick={startAnswering} variant="secondary" disabled={!isIdle}>
+            {isConnecting && modem.mode === ModemMode.ANSWER ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PhoneIncoming className="mr-2 h-4 w-4" />}
             Ответить
           </Button>
         </div>

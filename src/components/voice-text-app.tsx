@@ -5,11 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EncoderTab } from "@/components/encoder-tab";
 import { DecoderTab } from "@/components/decoder-tab";
-import { ManualDecoderTab } from "@/components/manual-decoder-tab";
-import { AudioWaveform, Link, Radio, Type } from "lucide-react";
+import { AudioWaveform, Link, Radio, Type, TestTube2 } from "lucide-react";
 import { LogViewer } from "./log-viewer";
 import { LogProvider } from "@/context/log-context";
 import { ModemTab } from "./modem-tab";
+import { ModemTestTab } from "./modem-test-tab";
 
 export function VoiceTextApp() {
   return (
@@ -29,10 +29,11 @@ export function VoiceTextApp() {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="encoder" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="encoder"><Type className="w-4 h-4 mr-2"/>Кодировщик</TabsTrigger>
                 <TabsTrigger value="decoder"><Radio className="w-4 h-4 mr-2"/>Декодер</TabsTrigger>
                 <TabsTrigger value="modem"><Link className="w-4 h-4 mr-2"/>Модем</TabsTrigger>
+                <TabsTrigger value="modem-test"><TestTube2 className="w-4 h-4 mr-2"/>Тест модема</TabsTrigger>
               </TabsList>
               <TabsContent value="encoder">
                 <EncoderTab />
@@ -42,6 +43,9 @@ export function VoiceTextApp() {
               </TabsContent>
               <TabsContent value="modem">
                  <ModemTab />
+              </TabsContent>
+               <TabsContent value="modem-test">
+                 <ModemTestTab />
               </TabsContent>
             </Tabs>
           </CardContent>
