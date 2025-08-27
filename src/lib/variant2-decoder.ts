@@ -85,7 +85,7 @@ function findPreamble(data: Float32Array, addLog: (msg: string, type?: any) => v
         goertzel1.process(chunk[0]);
 
         const power0 = goertzel0.getPower();
-        const power1 = goert1.getPower();
+        const power1 = goertzel1.getPower();
 
         let currentBit = -1;
         if (power1 > GOERTZEL_THRESHOLD && power1 > power0) {
@@ -133,7 +133,7 @@ function readBits(data: Float32Array, startIndex: number, bitCount: number, addL
         goertzel1.process(chunk[0]);
 
         const power0 = goertzel0.getPower();
-        const power1 = goert1.getPower();
+        const power1 = goertzel1.getPower();
 
         if (power1 > GOERTZEL_THRESHOLD && power1 > power0) {
             bits.push(1);
