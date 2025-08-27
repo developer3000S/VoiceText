@@ -24,7 +24,7 @@ const FormSchemaV1 = z.object({
 });
 
 const FormSchemaV2 = z.object({
-  sequence: z.string().min(1, "Последовательность не может быть пустой.").regex(/^[01,\s]+$/, 'Неверный формат битовой последовательности. Используйте только 0 и 1, разделенные запятыми.'),
+  sequence: z.string().min(1, "Последовательность не может быть пустой.").regex(/^[01,\s]+$/, 'Неверный формат битовой последовательности. Используйте только 0 и 1, разделенные запятыми или без них.'),
   decodingType: z.literal('v2'),
 });
 
@@ -91,8 +91,11 @@ export function ManualDecoderTab() {
 
   const handleDecodeV2 = (sequence: string) => {
     addLog(`Ручной декодер (V2): запуск для битовой последовательности...`);
-    const bits = sequence.split(',').map(s => parseInt(s.trim(), 10)).filter(bit => !isNaN(bit));
     
+    // Allow sequence with or without commas
+    const cleanedSequence = sequence.replace(/[^01]/g, '');
+    const bits = cleanedSequence.split('').map(bit => parseInt(bit, 10));
+
     if(bits.length < 16 + 16 + 8) { // Preamble + Header + CRC
         addLog('Последовательность слишком короткая для V2.', 'error');
         toast({ variant: 'destructive', title: 'Ошибка', description: 'Последовательность слишком короткая.'});
@@ -105,6 +108,12 @@ export function ManualDecoderTab() {
     const headerBytes = bitsToBytes(headerBits);
     const dataLength = headerBytes[0];
     const packetType = headerBytes[1];
+
+    if (32 + dataLength * 8 + 8 > bits.length) {
+        addLog(`Ожидаемая длина (${32 + dataLength * 8 + 8}) превышает фактическую (${bits.length}).`, 'error');
+        toast({ variant: 'destructive', title: 'Ошибка', description: 'Неполные данные в последовательности.'});
+        return;
+    }
 
     const dataBits = bits.slice(32, 32 + dataLength * 8);
     const dataBytes = bitsToBytes(dataBits);
@@ -208,7 +217,7 @@ export function ManualDecoderTab() {
                     <Input 
                       placeholder={currentType === 'v1' 
                         ? "*,1,6,3,..." 
-                        : "1,0,1,0,1,..."}
+                        : "1,0,1,0,1,0,1,0,..."}
                       {...field} />
                   </FormControl>
                   <FormMessage />

@@ -322,7 +322,7 @@ export function EncoderTab() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="font-mono text-sm break-all bg-background p-3 rounded-md">
-                {Array.isArray(generatedSequence) ? generatedSequence.join('') : generatedSequence}
+                {Array.isArray(generatedSequence) ? generatedSequence.join(',') : generatedSequence}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Button onClick={handlePlay} disabled={isPlaying || isSaving} className="w-full" variant="secondary">
