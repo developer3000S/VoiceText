@@ -29,7 +29,7 @@ export class Modem {
     private microphoneStream: MediaStream | null = null;
     private synth: Tone.Synth | null = null;
     public gainNode: Tone.Gain | null = null;
-    private inputSource: AudioNode | null = null;
+    private inputSource: MediaStreamAudioSourceNode | null = null;
 
     public onStateChange: (newState: ModemState) => void;
     public onDataReceived: (data: string) => void;
@@ -72,13 +72,8 @@ export class Modem {
             return;
         }
 
-        if (context) {
-            this.audioContext = context;
-        } else {
-            await Tone.start();
-            this.audioContext = new Tone.Context();
-            await this.audioContext.resume();
-        }
+        this.audioContext = context || new Tone.Context();
+        await this.audioContext.resume();
 
         this.analyser = new Tone.FFT({
             size: 2048,
@@ -111,10 +106,8 @@ export class Modem {
         }
     }
     
-    // This method is for test mode to connect the output of this modem to the input of another.
-    connectInput(source: AudioNode, partner?: Modem) {
-        this.inputSource = source;
-        this.inputSource.connect(this.analyser);
+    connectInput(sourceNode: Tone.Gain, partner?: Modem) {
+        sourceNode.connect(this.analyser);
         if (partner) {
             this.partnerModem = partner;
         }
@@ -142,7 +135,7 @@ export class Modem {
             return;
         }
         
-        if(!this.inputSource) {
+        if(!this.inputSource && !this.partnerModem) {
             try {
                 await this.ensureMicInput();
             } catch (e) {

@@ -100,14 +100,12 @@ export function ModemTestTab() {
   const connectModems = useCallback(async () => {
     addLog('Соединение виртуальных модемов...');
     
-    // Create one shared audio context for both modems.
     await Tone.start();
-    const sharedContext = new Tone.Context();
-    await sharedContext.resume();
-
-    // Initialize both modems with the same context and without mic input.
-    await modemA.initialize({ context: sharedContext, ensureMic: false });
-    await modemB.initialize({ context: sharedContext, ensureMic: false });
+    
+    // Initialize both modems without mic input.
+    // They will use the same master audio context from Tone.js
+    await modemA.initialize({ ensureMic: false });
+    await modemB.initialize({ ensureMic: false });
 
     // Connect the output of each modem to the input of the other.
     if (modemA.gainNode && modemB.gainNode) {
