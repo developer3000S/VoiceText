@@ -126,7 +126,7 @@ export function ModemTestTab() {
   const [isConnected, setIsConnected] = useState(false);
   
   // Create a single shared audio context for both modems.
-  const sharedAudioContext = useMemo(() => new Tone.Context(), []);
+  const sharedAudioContext = useMemo(() => new AudioContext(), []);
 
   const modemA = useMemo(() => new Modem((s) => {}, (d) => {}, addLog, 'A'), [addLog]);
   const modemB = useMemo(() => new Modem((s) => {}, (d) => {}, addLog, 'B'), [addLog]);
@@ -135,21 +135,26 @@ export function ModemTestTab() {
     addLog('Соединение виртуальных модемов...');
     
     // Ensure the shared context is running
-    await sharedAudioContext.resume();
+    if (sharedAudioContext.state === 'suspended') {
+        await sharedAudioContext.resume();
+    }
     
     // Initialize both modems with the same shared context and no mic input.
     await modemA.initialize(sharedAudioContext, { ensureMic: false });
     await modemB.initialize(sharedAudioContext, { ensureMic: false });
 
     // Connect the output of each modem to the input of the other.
-    if (modemA.gainNode && modemB.gainNode) {
-        modemA.connectInput(modemB.gainNode);
-        modemB.connectInput(modemA.gainNode);
+    const modemAOutput = modemA.getOutputNode();
+    const modemBOutput = modemB.getOutputNode();
+    
+    if (modemAOutput && modemBOutput) {
+        modemA.connectInput(modemBOutput);
+        modemB.connectInput(modemAOutput);
         
         setIsConnected(true);
         addLog('Модемы успешно соединены.');
     } else {
-        addLog('Ошибка: не удалось инициализировать аудио узлы для соединения.', 'error');
+        addLog('Ошибка: не удалось получить аудио узлы для соединения.', 'error');
     }
 
   }, [addLog, modemA, modemB, sharedAudioContext]);
@@ -158,9 +163,12 @@ export function ModemTestTab() {
     if (!isConnected) return;
     addLog('Разъединение виртуальных модемов...');
     
-    if (modemA.gainNode && modemB.gainNode) {
-      modemA.disconnectInput(modemB.gainNode);
-      modemB.disconnectInput(modemA.gainNode);
+    const modemAOutput = modemA.getOutputNode();
+    const modemBOutput = modemB.getOutputNode();
+
+    if (modemAOutput && modemBOutput) {
+        modemA.disconnectInput(modemBOutput);
+        modemB.disconnectInput(modemAOutput);
     }
 
     modemA.hangup();

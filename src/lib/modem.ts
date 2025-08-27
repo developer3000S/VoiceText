@@ -24,12 +24,12 @@ const STOP_BIT = 1;
 
 export class Modem {
     private state: ModemState = 'idle';
-    public audioContext!: Tone.Context;
-    private analyser!: Tone.FFT;
+    public audioContext!: AudioContext;
+    public analyser!: Tone.FFT;
     private microphoneStream: MediaStream | null = null;
     private synth: Tone.Synth | null = null;
     public gainNode: Tone.Gain | null = null;
-    private inputSource: MediaStreamAudioSourceNode | Tone.Gain | null = null;
+    private inputSource: MediaStreamAudioSourceNode | null = null;
 
     public onStateChange: (newState: ModemState) => void;
     public onDataReceived: (data: string) => void;
@@ -64,16 +64,16 @@ export class Modem {
         this.onStateChange(newState);
     }
 
-    async initialize(context: Tone.Context, options: { ensureMic?: boolean } = {}) {
+    async initialize(context: AudioContext, options: { ensureMic?: boolean } = {}) {
         const { ensureMic = true } = options;
 
-        if (this.audioContext && this.audioContext.state === 'running') {
-            if (ensureMic) await this.ensureMicInput();
-            return;
+        this.audioContext = context;
+        if (this.audioContext.state === 'suspended') {
+            await this.audioContext.resume();
         }
 
-        this.audioContext = context;
-        await this.audioContext.resume();
+        // Use the passed AudioContext for all Tone.js components
+        Tone.setContext(this.audioContext);
 
         this.analyser = new Tone.FFT({
             size: 2048,
@@ -106,12 +106,16 @@ export class Modem {
         }
     }
     
-    connectInput(sourceNode: Tone.Gain) {
+    getOutputNode(): Tone.Gain | null {
+        return this.gainNode;
+    }
+
+    connectInput(sourceNode: GainNode) {
         sourceNode.connect(this.analyser);
         this.log(`Вход соединен с другим модемом`);
     }
 
-    disconnectInput(sourceNode: Tone.Gain) {
+    disconnectInput(sourceNode: GainNode) {
         if (this.gainNode) {
             try {
               sourceNode.disconnect(this.analyser);
@@ -130,15 +134,6 @@ export class Modem {
             this.setState('error');
             return;
         }
-        
-        if(!this.inputSource) {
-            try {
-                await this.ensureMicInput();
-            } catch (e) {
-                return; // Stop if mic access failed
-            }
-        }
-
 
         this.mode = mode;
         
@@ -270,7 +265,9 @@ export class Modem {
             }
         }, "16n").start(0);
 
-        Tone.Transport.start();
+        if (Tone.Transport.state !== 'started') {
+            Tone.Transport.start();
+        }
     }
     
     private frequencyToBit(freq: number): number | null {
@@ -346,7 +343,9 @@ export class Modem {
              }
         }, "16n").start(0);
 
-        Tone.Transport.start();
+        if (Tone.Transport.state !== 'started') {
+            Tone.Transport.start();
+        }
     }
     
     private stopListeningForTone() {
