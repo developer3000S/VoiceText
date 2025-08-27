@@ -15,7 +15,7 @@ const BIT_0_FREQ = 1070;   // Space
 // Timing
 const BIT_DURATION = 0.05; // 50ms per bit => 20 baud
 const HANDSHAKE_TIMEOUT_MS = 5000;
-const BIT_RECEIVE_TIMEOUT_MS = BIT_DURATION * 1000 * 3; // Timeout for waiting for the next bit in a byte
+const BIT_RECEIVE_TIMEOUT_MS = BIT_DURATION * 1000 * 12; // Timeout for waiting for the next bit in a byte (10 bits + margin)
 
 // Protocol bits
 const START_BIT = 0;
@@ -24,11 +24,11 @@ const STOP_BIT = 1;
 
 export class Modem {
     private state: ModemState = 'idle';
-    public audioContext!: AudioContext;
-    public analyser!: Tone.FFT;
+    private audioContext: AudioContext | null = null;
+    public analyser: Tone.FFT;
     private microphoneStream: MediaStream | null = null;
     private synth: Tone.Synth | null = null;
-    public gainNode: Tone.Gain | null = null;
+    public gainNode: Tone.Gain;
     private inputSource: MediaStreamAudioSourceNode | null = null;
 
     public onStateChange: (newState: ModemState) => void;
@@ -52,6 +52,9 @@ export class Modem {
         this.onDataReceived = onDataReceived;
         this.addLog = addLog;
         this.id = id;
+        // Эти компоненты создаются один раз, но инициализируются позже
+        this.analyser = new Tone.FFT({ size: 2048 });
+        this.gainNode = new Tone.Gain(1.0).connect(this.analyser);
     }
 
     private log(message: string, type?: 'info' | 'error' | 'warning') {
@@ -64,26 +67,23 @@ export class Modem {
         this.onStateChange(newState);
     }
 
-    async initialize(context: AudioContext, options: { ensureMic?: boolean } = {}) {
+    async initialize(options: { ensureMic?: boolean } = {}) {
         const { ensureMic = true } = options;
 
-        this.audioContext = context;
+        if (this.audioContext && this.audioContext.state === 'running') {
+            this.log('Модем уже инициализирован.');
+            return;
+        }
+
+        this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         if (this.audioContext.state === 'suspended') {
             await this.audioContext.resume();
         }
 
-        // Use the passed AudioContext for all Tone.js components
         Tone.setContext(this.audioContext);
 
-        this.analyser = new Tone.FFT({
-            size: 2048,
-            context: this.audioContext,
-        });
-
-        this.synth = new Tone.Synth({ context: this.audioContext }).toDestination();
-        this.gainNode = new Tone.Gain(1.0).connect(this.analyser);
-        this.synth.connect(this.gainNode);
-
+        this.synth = new Tone.Synth({ context: this.audioContext }).connect(this.gainNode);
+       
         if (ensureMic) {
             await this.ensureMicInput();
         }
@@ -92,7 +92,7 @@ export class Modem {
     }
     
     private async ensureMicInput() {
-       if (!this.inputSource) {
+       if (!this.inputSource && this.audioContext) {
             try {
                 this.microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 this.inputSource = this.audioContext.createMediaStreamSource(this.microphoneStream);
@@ -106,11 +106,12 @@ export class Modem {
         }
     }
     
-    getOutputNode(): Tone.Gain | null {
+    getOutputNode(): Tone.Gain {
         return this.gainNode;
     }
 
     connectInput(sourceNode: GainNode) {
+        // GainNode - это нативный узел, поэтому мы можем его подключить
         sourceNode.connect(this.analyser);
         this.log(`Вход соединен с другим модемом`);
     }
@@ -182,7 +183,7 @@ export class Modem {
 
     private async playTone(freq: number, duration: number): Promise<void> {
        return new Promise(resolve => {
-           if (!this.synth || this.audioContext.state !== 'running') return resolve();
+           if (!this.synth || !this.audioContext || this.audioContext.state !== 'running') return resolve();
            this.synth.triggerAttackRelease(freq, duration / 1000, this.audioContext.currentTime);
            setTimeout(resolve, duration);
        })
@@ -220,6 +221,11 @@ export class Modem {
         let isReceivingByte = false;
 
         this.listenLoop = new Tone.Loop(time => {
+            if (this.state !== 'connected') {
+                this.stopListeningForData();
+                return;
+            }
+
             const freq = this.detectFrequency();
             if (!freq) return;
 
@@ -285,6 +291,8 @@ export class Modem {
     hangup() {
         if (this.state === 'idle') return;
 
+        const wasConnected = this.state === 'connected';
+
         this.stopListeningForTone();
         this.stopListeningForData();
         this.synth?.triggerRelease();
@@ -295,7 +303,7 @@ export class Modem {
             this.inputSource = null;
         }
 
-        if (this.partnerModem && this.partnerModem.state !== 'idle') {
+        if (wasConnected && this.partnerModem && this.partnerModem.state !== 'idle') {
             this.partnerModem.hangup();
         }
         
@@ -312,18 +320,23 @@ export class Modem {
         let maxVal = -Infinity;
         let maxIndex = -1;
 
-        for (let i = 0; i < values.length; i++) {
+        // Ищем пик в рабочем диапазоне частот (например, 1000-2300 Гц)
+        const lowIndexBound = Math.floor((1000 * this.analyser.size) / (this.audioContext?.sampleRate || 44100));
+        const highIndexBound = Math.ceil((2300 * this.analyser.size) / (this.audioContext?.sampleRate || 44100));
+
+        for (let i = lowIndexBound; i < highIndexBound; i++) {
             if (values[i] > maxVal) {
                 maxVal = values[i];
                 maxIndex = i;
             }
         }
         
+        // Порог обнаружения сигнала
         if (maxVal < -70) { 
             return null;
         }
 
-        const frequency = maxIndex * (this.audioContext.sampleRate / this.analyser.size);
+        const frequency = maxIndex * (this.audioContext?.sampleRate || 44100 / this.analyser.size);
         
         if (frequency > 500) { 
             return frequency;

@@ -1,15 +1,14 @@
 
 "use client";
 
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useLog } from '@/context/log-context';
 import { Textarea } from './ui/textarea';
 import { Modem, ModemMode, ModemState } from '@/lib/modem';
 import { PhoneCall, PhoneIncoming, Send, XCircle, Link, Unlink, Loader2, PlusCircle } from 'lucide-react';
 import { Separator } from './ui/separator';
-import * as Tone from 'tone';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,9 +25,9 @@ const ModemInstance = ({ id, modem, isConnected, addLog }: { id: string, modem: 
 
     useEffect(() => {
         modem.onStateChange = (newState) => {
-            if (newState === 'idle') {
+            if (newState === 'idle' || newState === 'error') {
                 setReceivedText('');
-                setTextToSend('');
+                // Не сбрасываем textToSend, чтобы пользователь не терял ввод
             }
             setModemState(newState);
         };
@@ -37,11 +36,13 @@ const ModemInstance = ({ id, modem, isConnected, addLog }: { id: string, modem: 
     
     const startCalling = async () => {
         if (!isConnected) return;
+        await modem.initialize({ ensureMic: false }); // Инициализация по клику
         modem.start(ModemMode.CALL);
     };
 
     const startAnswering = async () => {
         if (!isConnected) return;
+        await modem.initialize({ ensureMic: false }); // Инициализация по клику
         modem.start(ModemMode.ANSWER);
     };
     
@@ -125,30 +126,14 @@ export function ModemTestTab() {
   const { addLog } = useLog();
   const [isConnected, setIsConnected] = useState(false);
   
+  // Создаем экземпляры модемов без инициализации
   const modemA = useMemo(() => new Modem((s) => {}, (d) => {}, addLog, 'A'), [addLog]);
   const modemB = useMemo(() => new Modem((s) => {}, (d) => {}, addLog, 'B'), [addLog]);
-  const sharedAudioContextRef = useRef<AudioContext | null>(null);
 
-  const connectModems = useCallback(async () => {
+  const connectModems = useCallback(() => {
     addLog('Соединение виртуальных модемов...');
     
-    // Create and resume the shared audio context on user gesture
-    if (!sharedAudioContextRef.current) {
-        sharedAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    
-    if (sharedAudioContextRef.current.state === 'suspended') {
-        await sharedAudioContextRef.current.resume();
-        addLog('AudioContext возобновлен.');
-    }
-    
-    const audioCtx = sharedAudioContextRef.current;
-    
-    // Initialize both modems with the same shared context and no mic input.
-    await modemA.initialize(audioCtx, { ensureMic: false });
-    await modemB.initialize(audioCtx, { ensureMic: false });
-
-    // Connect the output of each modem to the input of the other.
+    // Прямое соединение выхода одного модема на вход другого
     const modemAOutput = modemA.getOutputNode();
     const modemBOutput = modemB.getOutputNode();
     
@@ -157,11 +142,10 @@ export function ModemTestTab() {
         modemB.connectInput(modemAOutput);
         
         setIsConnected(true);
-        addLog('Модемы успешно соединены.');
+        addLog('Модемы успешно соединены виртуальным кабелем.');
     } else {
         addLog('Ошибка: не удалось получить аудио узлы для соединения.', 'error');
     }
-
   }, [addLog, modemA, modemB]);
 
   const disconnectModems = useCallback(() => {

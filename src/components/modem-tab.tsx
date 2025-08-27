@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Speaker } from 'lucide-react';
-import * as Tone from 'tone';
 
 const templates = ["Привет!", "Как дела?", "Встречаемся в 15:00."];
 
@@ -59,7 +58,7 @@ export function ModemTab() {
     const hasPermission = await checkAndRequestPermission();
     if (!hasPermission) return;
     
-    await modem.initialize(new Tone.Context());
+    await modem.initialize({ ensureMic: true });
     modem.start(ModemMode.ANSWER);
   };
 
@@ -67,7 +66,7 @@ export function ModemTab() {
     const hasPermission = await checkAndRequestPermission();
     if (!hasPermission) return;
 
-    await modem.initialize(new Tone.Context());
+    await modem.initialize({ ensureMic: true });
     modem.start(ModemMode.CALL);
   };
 
