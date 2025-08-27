@@ -4,7 +4,7 @@ import { dtmfToText } from './dtmf';
 const TONE_DURATION_MS = 50; 
 const THRESHOLD = 100; 
 const SAMPLE_RATE = 44100;
-const DEBOUNCE_MS = 75; 
+const DEBOUNCE_MS = 95; // Увеличено с 75 до 95 для лучшего разделения тонов
 
 export interface DecodedResult {
     text: string | null;
@@ -98,26 +98,26 @@ export function decodeSequenceFromTones(sequence: string[], addLog: (message: st
     
     addLog(`Стартовый символ * найден. Начало пакета на позиции ${startIdx}.`);
     
-    if (sequence.length <= startIdx + 1) {
-        const err = 'Последовательность слишком короткая, отсутствует заголовок.';
-        addLog(err, 'error');
-        return { text: null, requiresPassword: false, error: err, extractedTones: sequence };
-    }
+    const payloadWithEnd = sequence.slice(startIdx + 1);
+    const endIdx = payloadWithEnd.indexOf('#');
 
-    const encryptionFlag = sequence[startIdx + 1];
-    const isEncrypted = encryptionFlag === '1';
-    addLog(`Флаг шифрования: ${encryptionFlag}. Сообщение ${isEncrypted ? 'зашифровано' : 'не зашифровано'}.`);
-
-    let payload = sequence.slice(startIdx + 2); 
-
-    const endIdx = payload.lastIndexOf('#');
     if (endIdx === -1) {
         const err = 'Стоповый символ # не найден. Сообщение неполное.';
         addLog(err, 'warning');
         return { text: null, requiresPassword: false, error: err, extractedTones: sequence };
     }
-    
-    payload = payload.slice(0, endIdx);
+
+    if (payloadWithEnd.length === 0) {
+        const err = 'Последовательность слишком короткая, отсутствует заголовок.';
+        addLog(err, 'error');
+        return { text: null, requiresPassword: false, error: err, extractedTones: sequence };
+    }
+
+    const encryptionFlag = payloadWithEnd[0];
+    const isEncrypted = encryptionFlag === '1';
+    addLog(`Флаг шифрования: ${encryptionFlag}. Сообщение ${isEncrypted ? 'зашифровано' : 'не зашифровано'}.`);
+
+    let payload = payloadWithEnd.slice(1, endIdx); 
     addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
     
     if (isEncrypted && !password) {
