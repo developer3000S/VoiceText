@@ -7,19 +7,17 @@ import { useToast } from './use-toast';
 export const useRecorder = () => {
     const { toast } = useToast();
     const [isRecording, setIsRecording] = useState(false);
-    const [hasPermission, setHasPermission] = useState<boolean | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const recordedChunksRef = useRef<Blob[]>([]);
 
     const requestPermission = useCallback(async (): Promise<boolean> => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // Stop the tracks immediately after getting permission to avoid leaving the mic on.
             stream.getTracks().forEach(track => track.stop());
-            setHasPermission(true);
             return true;
         } catch (error) {
             console.error("Ошибка запроса разрешений:", error);
-            setHasPermission(false);
             toast({
                 variant: "destructive",
                 title: "Доступ к микрофону запрещен",
@@ -30,8 +28,8 @@ export const useRecorder = () => {
     }, [toast]);
 
     const startRecording = useCallback(async () => {
-        const permissionGranted = await requestPermission();
-        if (!permissionGranted) {
+        const hasPermission = await requestPermission();
+        if (!hasPermission) {
             return;
         }
 
@@ -40,8 +38,12 @@ export const useRecorder = () => {
             setIsRecording(true);
             recordedChunksRef.current = [];
             
-            const options = { mimeType: 'audio/webm;codecs=opus' };
-            const recorder = new MediaRecorder(stream, MediaRecorder.isTypeSupported(options.mimeType) ? options : undefined);
+            // Explicitly try to record in WAV format if possible, otherwise fall back.
+            const mimeTypes = ['audio/wav', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus'];
+            const supportedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
+            
+            const options = supportedMimeType ? { mimeType: supportedMimeType } : undefined;
+            const recorder = new MediaRecorder(stream, options);
 
             mediaRecorderRef.current = recorder;
 
@@ -76,7 +78,7 @@ export const useRecorder = () => {
         return new Promise((resolve) => {
             if (mediaRecorderRef.current) {
                 mediaRecorderRef.current.onstop = () => {
-                    const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+                    const mimeType = mediaRecorderRef.current?.mimeType || 'audio/wav';
                     const blob = new Blob(recordedChunksRef.current, { type: mimeType });
                     recordedChunksRef.current = [];
                     setIsRecording(false);
@@ -89,5 +91,5 @@ export const useRecorder = () => {
         });
     }, [isRecording]);
 
-    return { isRecording, startRecording, stopRecording, hasPermission, requestPermission };
+    return { isRecording, startRecording, stopRecording, requestPermission };
 };

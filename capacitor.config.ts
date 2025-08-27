@@ -7,21 +7,28 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https',
   },
+  plugins: {
+    Keyboard: {
+      resize: 'ionic',
+      resizeOnFullScreen: true,
+    },
+  },
   android: {
+    allowMixedContent: true,
+    buildOptions: {
+      keystorePath: undefined,
+      keystoreAlias: undefined,
+    },
     permissions: [
-      {
-        alias: 'microphone',
-        name: 'android.permission.RECORD_AUDIO',
-      },
-      {
-        alias: 'storage',
-        name: 'android.permission.WRITE_EXTERNAL_STORAGE',
-      },
-      {
-        alias: 'internet',
-        name: 'android.permission.INTERNET',
-      }
-    ],
+        {
+            alias: "storage",
+            name: "android.permission.WRITE_EXTERNAL_STORAGE"
+        },
+        {
+            alias: "microphone",
+            name: "android.permission.RECORD_AUDIO"
+        }
+    ]
   },
 };
 
