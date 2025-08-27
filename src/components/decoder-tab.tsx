@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mic, Square, FileText, Upload, Speaker, PlayCircle, CircleDashed, LockKeyhole, KeyRound } from 'lucide-react';
 import { useRecorder } from '@/hooks/use-recorder';
 import { useLog } from '@/context/log-context';
-import { decodeDtmfFromAudio, DecodedResult } from '@/lib/dtmf-decoder';
+import { decodeDtmfFromAudio, DecodedResult, decodeSequenceFromTones } from '@/lib/dtmf-decoder';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Input } from './ui/input';
 
@@ -28,6 +28,7 @@ export function DecoderTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [decodedResult, setDecodedResult] = useState<DecodedResult | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [extractedTones, setExtractedTones] = useState<string[] | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [password, setPassword] = useState('');
 
@@ -40,6 +41,7 @@ export function DecoderTab() {
   const cleanup = () => {
     setDecodedResult(null);
     setRecordedBlob(null);
+    setExtractedTones(null);
     setPassword('');
     if (audioRef.current) {
       URL.revokeObjectURL(audioRef.current.src);
@@ -47,18 +49,19 @@ export function DecoderTab() {
     }
   };
 
-  const handleDecode = useCallback(async (blob: Blob, source: string, decryptPassword?: string) => {
-    if (!decryptPassword) {
-      cleanup();
-      setIsLoading(true);
-      setRecordedBlob(blob);
-    } else {
-      setIsLoading(true);
-    }
+  const handleDecode = useCallback(async (blob: Blob, source: string) => {
+    cleanup();
+    setIsLoading(true);
+    setRecordedBlob(blob);
     
     addLog(`Запуск локального декодирования аудио из источника: ${source}`);
     try {
-      const result = await decodeDtmfFromAudio(blob, addLog, decryptPassword);
+      const result = await decodeDtmfFromAudio(blob, addLog);
+      
+      if (result.extractedTones) {
+        setExtractedTones(result.extractedTones);
+      }
+      
       setDecodedResult(result);
 
       if (result.requiresPassword && !result.text) {
@@ -146,11 +149,26 @@ export function DecoderTab() {
   };
 
   const handleDecrypt = () => {
-    if (recordedBlob && password) {
-        handleDecode(recordedBlob, 'расшифровка', password);
-    } else {
-        toast({ variant: 'destructive', title: 'Ошибка', description: 'Нет записи для расшифровки или не введен пароль.' });
+    if (!extractedTones || !password) {
+        toast({ variant: 'destructive', title: 'Ошибка', description: 'Нет данных для расшифровки или не введен пароль.' });
+        return;
     }
+    
+    addLog(`Запуск расшифровки с паролем для извлеченной последовательности.`);
+    setIsLoading(true);
+    
+    const result = decodeSequenceFromTones(extractedTones, addLog, password);
+    setDecodedResult(result);
+    
+    if (result.text) {
+        addLog(`Расшифровка успешна. Результат: "${result.text}"`);
+    } else {
+        const errorMsg = result.error || 'Неверный пароль или поврежденные данные.';
+        addLog(errorMsg, 'error');
+        toast({ variant: 'destructive', title: 'Ошибка расшифровки', description: errorMsg });
+    }
+
+    setIsLoading(false);
   }
 
   return (
@@ -204,7 +222,7 @@ export function DecoderTab() {
               <CardTitle className="text-lg">Результат</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {isLoading ? (
+              {isLoading && !decodedResult?.requiresPassword ? (
                   <div className="flex justify-center items-center p-6">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
@@ -227,10 +245,11 @@ export function DecoderTab() {
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 className="pl-9"
+                                autoFocus
                             />
                         </div>
-                        <Button onClick={handleDecrypt} className="w-full" disabled={!password}>
-                            <LockKeyhole className="mr-2 h-4 w-4" />
+                        <Button onClick={handleDecrypt} className="w-full" disabled={!password || isLoading}>
+                            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LockKeyhole className="mr-2 h-4 w-4" />}
                             Расшифровать
                         </Button>
                     </div>

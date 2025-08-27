@@ -2,7 +2,6 @@
 import { dtmfToText } from './dtmf';
 
 const TONE_DURATION_MS = 50; 
-const PAUSE_DURATION_MS = 25; 
 const THRESHOLD = 100; 
 const SAMPLE_RATE = 44100;
 const DEBOUNCE_MS = 75; 
@@ -11,6 +10,7 @@ export interface DecodedResult {
     text: string | null;
     requiresPassword: boolean;
     error?: string;
+    extractedTones?: string[];
 }
 
 const DTMF_FREQUENCIES: { [key: string]: [number, number] } = {
@@ -85,14 +85,14 @@ function detectTone(chunk: Float32Array, sampleRate: number): string | null {
     return DTMF_MAP[`${detectedLowFreq},${detectedHighFreq}`] || null;
 }
 
-function decodeSequence(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): DecodedResult {
+export function decodeSequenceFromTones(sequence: string[], addLog: (message: string, type?: 'info' | 'error' | 'warning') => void, password?: string): DecodedResult {
     addLog(`Запуск декодирования последовательности: [${sequence.join(',')}]`);
 
     const startIdx = sequence.indexOf('*');
     if (startIdx === -1) {
         const err = 'Стартовый символ * не найден. Декодирование невозможно.';
         addLog(err, 'error');
-        return { text: null, requiresPassword: false, error: err };
+        return { text: null, requiresPassword: false, error: err, extractedTones: sequence };
     }
     addLog(`Стартовый символ * найден на позиции ${startIdx}.`);
     
@@ -100,7 +100,7 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
     if (sequence.length <= startIdx + 1) {
         const err = 'Последовательность слишком короткая, отсутствует заголовок.';
         addLog(err, 'error');
-        return { text: null, requiresPassword: false, error: err };
+        return { text: null, requiresPassword: false, error: err, extractedTones: sequence };
     }
 
     const encryptionFlag = sequence[startIdx + 1];
@@ -113,23 +113,23 @@ function decodeSequence(sequence: string[], addLog: (message: string, type?: 'in
     if (endIdx === -1) {
         const err = 'Стоповый символ # не найден. Сообщение неполное.';
         addLog(err, 'warning');
-        return { text: null, requiresPassword: false, error: err };
+        return { text: null, requiresPassword: false, error: err, extractedTones: sequence };
     }
     
     payload = payload.slice(0, endIdx);
     addLog(`Обнаружен пакет данных: [${payload.join(',')}]`);
     
     if (isEncrypted && !password) {
-        return { text: null, requiresPassword: true };
+        return { text: null, requiresPassword: true, extractedTones: sequence };
     }
 
     const text = dtmfToText(payload, isEncrypted, addLog, password);
     
     if (text === null && isEncrypted) {
-         return { text: null, requiresPassword: true, error: 'Ошибка расшифровки. Неверный пароль?' };
+         return { text: null, requiresPassword: true, error: 'Ошибка расшифровки. Неверный пароль?', extractedTones: sequence };
     }
     
-    return { text, requiresPassword: isEncrypted };
+    return { text, requiresPassword: isEncrypted, extractedTones: sequence };
 }
 
 
@@ -210,7 +210,7 @@ export async function decodeDtmfFromAudio(blob: Blob, addLog: (message: string, 
             }
         }
         
-        const decoded = decodeSequence(detectedTones, addLog, password);
+        const decoded = decodeSequenceFromTones(detectedTones, addLog, password);
         return decoded;
 
     } catch(error) {

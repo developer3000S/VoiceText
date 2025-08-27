@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -10,14 +11,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Wand2, FileText } from 'lucide-react';
-import { renderDtmfSequenceToAudioBuffer } from '@/lib/dtmf';
 import { useLog } from '@/context/log-context';
-import { decodeDtmfFromAudio, DecodedResult } from '@/lib/dtmf-decoder';
-import { bufferToWave } from '@/lib/wav';
+import { DecodedResult, decodeSequenceFromTones } from '@/lib/dtmf-decoder';
 
 
 const FormSchema = z.object({
-  sequence: z.string().min(1, "Последовательность не может быть пустой.").regex(/^[0-9#*]+(,\s*[0-9#*]+)*$/, 'Неверный формат последовательности DTMF. Используйте цифры, *, #, разделенные запятыми.'),
+  sequence: z.string().min(1, "Последовательность не может быть пустой.").regex(/^[0-9#*,]+$/, 'Неверный формат последовательности DTMF. Используйте цифры, *, #, разделенные запятыми.'),
 });
 
 export function ManualDecoderTab() {
@@ -34,27 +33,23 @@ export function ManualDecoderTab() {
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     setIsLoading(true);
     setDecodedText(null);
-    addLog(`Ручной декодер: запуск для последовательности "${data.sequence}"`);
+    const tones = data.sequence.split(',').map(s => s.trim()).filter(Boolean);
+    addLog(`Ручной декодер: запуск для последовательности "${tones.join(',')}"`);
     try {
-      addLog('Генерация аудио из последовательности...');
-      const audioBuffer = await renderDtmfSequenceToAudioBuffer(data.sequence);
-      const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
-      
-      addLog('Аудио сгенерировано, запуск локального декодирования...');
-      const result: DecodedResult = await decodeDtmfFromAudio(wavBlob, addLog);
+      const result: DecodedResult = decodeSequenceFromTones(tones, addLog);
      
        if (result.text !== null) {
         setDecodedText(result.text);
         addLog(`Ручное декодирование успешно. Результат: "${result.text}"`);
       } else {
-        const errorMsg = result.error || 'Не удалось распознать DTMF тоны в аудио или сообщение неполное (отсутствует стоп-символ #).';
+        const errorMsg = result.error || 'Не удалось распознать DTMF тоны или сообщение неполное.';
         toast({
           variant: 'destructive',
           title: 'Ошибка декодирования',
           description: errorMsg,
         });
         setDecodedText(null);
-        // Log already added inside the decoder function
+        addLog(errorMsg, 'error');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -86,7 +81,7 @@ export function ManualDecoderTab() {
                 <FormItem>
                   <FormLabel>Последовательность DTMF</FormLabel>
                   <FormControl>
-                    <Input placeholder="например, *,1,6,3,2,6,4,3,5,1,9,# " {...field} />
+                    <Input placeholder="например, *,1,6,3,2,6,4,3,5,1,9,#" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
