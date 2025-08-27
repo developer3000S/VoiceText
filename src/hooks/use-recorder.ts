@@ -3,42 +3,84 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useToast } from './use-toast';
+import { Capacitor } from '@capacitor/core';
+import { Permissions } from '@capacitor/permissions';
 
 export const useRecorder = () => {
     const { toast } = useToast();
     const [isRecording, setIsRecording] = useState(false);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const recordedChunksRef = useRef<Blob[]>([]);
+    const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
-    const requestPermission = useCallback(async (): Promise<boolean> => {
+    const checkAndRequestPermission = useCallback(async (): Promise<boolean> => {
+        if (!Capacitor.isNativePlatform()) {
+            // В вебе просто пытаемся получить доступ, браузер сам покажет диалог
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(track => track.stop());
+                setHasPermission(true);
+                return true;
+            } catch (error) {
+                console.error("Ошибка запроса разрешений в вебе:", error);
+                 toast({
+                    variant: "destructive",
+                    title: "Доступ к микрофону запрещен",
+                    description: `Пожалуйста, предоставьте доступ к микрофону в настройках браузера.`,
+                });
+                setHasPermission(false);
+                return false;
+            }
+        }
+        
+        // Нативная логика для Android/iOS
         try {
-            // Запрос разрешения заставит браузер или WebView показать диалог пользователю
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            // Нам не нужно держать стрим открытым, только получить разрешение
-            stream.getTracks().forEach(track => track.stop());
-            return true;
+            let permissionStatus = await Permissions.query({ name: 'microphone' });
+
+            if (permissionStatus.state === 'granted') {
+                setHasPermission(true);
+                return true;
+            }
+
+            if (permissionStatus.state === 'prompt') {
+                permissionStatus = await Permissions.request({ name: 'microphone' });
+            }
+
+            if (permissionStatus.state === 'granted') {
+                setHasPermission(true);
+                return true;
+            }
+            
+            toast({
+                variant: "destructive",
+                title: "Доступ к микрофону запрещен",
+                description: `Пожалуйста, предоставьте доступ к микрофону в настройках приложения.`,
+            });
+            setHasPermission(false);
+            return false;
+
         } catch (error) {
             console.error("Ошибка запроса разрешений:", error);
             const err = error as DOMException;
             toast({
                 variant: "destructive",
-                title: "Доступ к микрофону запрещен",
-                description: `Пожалуйста, предоставьте доступ к микрофону в настройках. Ошибка: ${err.message}`,
+                title: "Ошибка разрешений",
+                description: `Не удалось запросить доступ к микрофону. ${err.message}`,
             });
+            setHasPermission(false);
             return false;
         }
     }, [toast]);
 
     const startRecording = useCallback(async () => {
-        const hasPermission = await requestPermission();
-        if (!hasPermission) {
+        const permissionGranted = await checkAndRequestPermission();
+        if (!permissionGranted) {
             return;
         }
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
-            // Пытаемся указать mimeType, чтобы получить WAV, если возможно
             const options = { mimeType: 'audio/wav' };
             let mediaRecorder;
             try {
@@ -73,7 +115,7 @@ export const useRecorder = () => {
             });
             setIsRecording(false);
         }
-    }, [requestPermission, toast]);
+    }, [checkAndRequestPermission, toast]);
     
     const stopRecording = useCallback(async (): Promise<Blob | null> => {
         return new Promise((resolve) => {
@@ -97,5 +139,5 @@ export const useRecorder = () => {
         });
     }, [isRecording]);
 
-    return { isRecording, startRecording, stopRecording, requestPermission };
+    return { isRecording, startRecording, stopRecording, hasPermission };
 };

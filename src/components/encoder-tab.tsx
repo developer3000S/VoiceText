@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useLog } from '@/context/log-context';
 import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Toast as CapacitorToast } from '@capacitor/toast';
 import { Input } from './ui/input';
 
 
@@ -101,16 +103,55 @@ export function EncoderTab() {
     }
     setIsPlaying(false);
   }
-
-  async function handleSave() {
-    if (!dtmfSequence) return;
-    setIsSaving(true);
-    addLog('Сохранение аудиофайла...');
-
+  
+  async function handleSaveNative(wavBlob: Blob) {
+    addLog('Запуск сохранения файла на мобильном устройстве...');
     try {
-      const audioBuffer = await renderDtmfSequenceToAudioBuffer(dtmfSequence);
-      const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
-      
+      const reader = new FileReader();
+      reader.readAsDataURL(wavBlob);
+      reader.onloadend = async () => {
+        const base64Data = reader.result as string;
+        const fileName = `dtmf_sequence_${Date.now()}.wav`;
+
+        try {
+            const result = await Filesystem.writeFile({
+                path: fileName,
+                data: base64Data,
+                directory: Directory.Download, // Пытаемся сохранить в публичную папку
+            });
+            addLog(`Файл успешно сохранен в папку Download: ${result.uri}`);
+            await CapacitorToast.show({
+                text: `Файл сохранен: ${fileName}`,
+                duration: 'long'
+            });
+        } catch (e) {
+            addLog(`Не удалось сохранить в папку Download, пробуем внутреннее хранилище. Ошибка: ${(e as Error).message}`, 'warning');
+            const result = await Filesystem.writeFile({
+                path: fileName,
+                data: base64Data,
+                directory: Directory.Data,
+            });
+            addLog(`Файл сохранен во внутреннюю папку приложения: ${result.uri}`);
+            await CapacitorToast.show({
+                text: 'Файл сохранен во внутреннюю папку',
+                duration: 'long'
+            });
+        }
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Native save error:", error);
+      addLog(`Ошибка сохранения файла на устройстве: ${errorMessage}`, 'error');
+      toast({
+          variant: "destructive",
+          title: "Ошибка сохранения",
+          description: "Не удалось сохранить файл на устройстве.",
+      });
+    }
+  }
+
+  async function handleSaveWeb(wavBlob: Blob) {
+      addLog('Запуск сохранения файла в браузере...');
       const url = URL.createObjectURL(wavBlob);
       const a = document.createElement('a');
       a.href = url;
@@ -120,6 +161,21 @@ export function EncoderTab() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       addLog('Файл успешно сохранен (веб-метод).');
+  }
+
+  async function handleSave() {
+    if (!dtmfSequence) return;
+    setIsSaving(true);
+    
+    try {
+      const audioBuffer = await renderDtmfSequenceToAudioBuffer(dtmfSequence);
+      const wavBlob = bufferToWave(audioBuffer, audioBuffer.length);
+      
+      if (isNative) {
+        await handleSaveNative(wavBlob);
+      } else {
+        await handleSaveWeb(wavBlob);
+      }
 
     } catch (error) {
        const errorMessage = error instanceof Error ? error.message : String(error);
