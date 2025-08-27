@@ -14,7 +14,7 @@ const FREQ_1 = 2000;
 const POSTAMBLE_FREQ = 1500;
 
 const FREQ_THRESHOLD = 50;
-const GOERTZEL_THRESHOLD = 1e7; // Lowered threshold
+const GOERTZEL_THRESHOLD = 1e6; // Significantly lowered threshold for better sensitivity
 
 export interface DecodedResult {
     text: string | null;
@@ -89,7 +89,10 @@ function findPreamble(data: Float32Array, addLog: (msg: string, type?: any) => v
     let lastBit = -1;
     let preambleCount = 0;
 
-    for (let i = 0; i < data.length - preambleChunkSize; i += preambleChunkSize) {
+    // Use a smaller step for a sliding window approach to not miss the start
+    const step = Math.floor(preambleChunkSize / 4);
+
+    for (let i = 0; i < data.length - preambleChunkSize; i += step) {
         const chunk = data.slice(i, i + preambleChunkSize);
         
         goertzel0.reset();
@@ -109,21 +112,26 @@ function findPreamble(data: Float32Array, addLog: (msg: string, type?: any) => v
         }
 
         if (currentBit !== -1) {
-            if (preambleCount === 0 && currentBit === 1) {
-                preambleCount = 1; // Start of preamble
+            if (preambleCount === 0 && currentBit === 1) { // Preamble must start with 1
+                preambleCount = 1;
                 lastBit = 1;
             } else if (preambleCount > 0 && currentBit !== lastBit) {
                 preambleCount++;
                 lastBit = currentBit;
                 if (preambleCount >= PREAMBLE_BITS) {
                     addLog(`Преамбула найдена на позиции ${i + preambleChunkSize} семплов.`, 'info');
-                    return i + preambleChunkSize;
+                    return i + preambleChunkSize; // Return the position AFTER the preamble
                 }
-            } else {
-                preambleCount = 0; // Reset
+            } else if (preambleCount > 0 && currentBit === lastBit) {
+                 // The bit is the same, this breaks the 101010 pattern, so reset.
+                 preambleCount = 0;
+                 lastBit = -1;
+            }
+             else {
+                preambleCount = 0; // Reset if the pattern is not met
             }
         } else {
-            preambleCount = 0; // Reset
+            preambleCount = 0; // Reset if no clear bit is detected
         }
     }
     addLog('Преамбула не найдена.', 'error');
@@ -165,12 +173,12 @@ function readBits(data: Float32Array, startIndex: number, bitCount: number, addL
 }
 
 function bitsToBytes(bits: number[]): Uint8Array {
-    const bytes = new Uint8Array(bits.length / 8);
+    const bytes = new Uint8Array(Math.ceil(bits.length / 8));
     for (let i = 0; i < bytes.length; i++) {
         let byte = 0;
         for (let j = 0; j < 8; j++) {
-            const bit = bits[i * 8 + j];
-            if (bit === 1) {
+            const bitIndex = i * 8 + j;
+            if (bitIndex < bits.length && bits[bitIndex] === 1) {
                 // LSB first, so we set the j-th bit
                 byte |= (1 << j);
             }
