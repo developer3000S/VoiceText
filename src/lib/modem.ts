@@ -20,27 +20,25 @@ export class Modem {
     private oscillator: Tone.Oscillator | null = null;
     private synth: Tone.Synth | null = null;
     private gainNode: GainNode | null = null;
+    private inputSource: AudioNode | null = null;
 
-    private onStateChange: (newState: ModemState) => void;
-    private onDataReceived: (data: string) => void;
+    public onStateChange: (newState: ModemState) => void;
+    public onDataReceived: (data: string) => void;
     private addLog: (message: string, type?: 'info' | 'error' | 'warning') => void;
     private analysisFrameId: number | null = null;
     public mode: ModemMode | null = null;
     private id: string;
-    private destination: AudioNode | null = null;
 
     constructor(
         onStateChange: (newState: ModemState) => void,
         onDataReceived: (data: string) => void,
         addLog: (message: string, type?: 'info' | 'error' | 'warning') => void,
-        id: string,
-        destinationNode: AudioNode | null = null
+        id: string
     ) {
         this.onStateChange = onStateChange;
         this.onDataReceived = onDataReceived;
         this.addLog = addLog;
         this.id = id;
-        this.destination = destinationNode;
     }
 
     private log(message: string, type?: 'info' | 'error' | 'warning') {
@@ -60,51 +58,60 @@ export class Modem {
         this.analyser = this.audioContext.createAnalyser();
         this.analyser.fftSize = 2048;
         
-        // If no destination is provided (real mode), get mic input
-        if (!this.destination) {
+        this.gainNode = this.audioContext.createGain();
+        this.gainNode.connect(this.audioContext.destination);
+        
+        this.oscillator = new Tone.Oscillator().connect(new Tone.Gain(0.5).connect(this.gainNode));
+        this.synth = new Tone.Synth().connect(new Tone.Gain(0.5).connect(this.gainNode));
+
+        this.log('Модем инициализирован');
+    }
+
+    private async ensureMicInput() {
+       if (!this.microphoneStream) {
             try {
                 this.microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const source = this.audioContext.createMediaStreamSource(this.microphoneStream);
-                source.connect(this.analyser);
+                this.inputSource = source;
+                this.inputSource.connect(this.analyser);
+                this.log('Вход с микрофона активирован.');
             } catch (error) {
                 this.log('Ошибка доступа к микрофону', 'error');
                 this.setState('error');
                 throw new Error('Microphone access denied');
             }
         }
-        
-        // Setup output path
-        this.gainNode = this.audioContext.createGain();
-        if (this.destination) {
-            this.gainNode.connect(this.destination);
-        } else {
-            this.gainNode.connect(this.audioContext.destination);
-        }
-        
-        this.oscillator = new Tone.Oscillator().connect(new Tone.Gain(0.5).connect(Tone.context.destination));
-        this.synth = new Tone.Synth().connect(new Tone.Gain(0.5).connect(Tone.context.destination));
-
-        this.log('Модем инициализирован');
     }
 
-    // This method is for test mode to connect the output of this modem to the input of another.
     connectInput(source: AudioNode) {
-        source.connect(this.analyser);
+        this.inputSource = source;
+        this.inputSource.connect(this.analyser);
         this.log(`Вход соединен с другим модемом`);
+    }
+
+    disconnectInput() {
+        this.inputSource?.disconnect();
+        this.inputSource = null;
+        this.log('Вход отсоединен.');
     }
 
     getOutputNode(): AudioNode | null {
         return this.gainNode;
     }
 
-    start(mode: ModemMode) {
+    async start(mode: ModemMode) {
         if (this.state !== 'idle' && this.state !== 'error') return;
+        
+        // For real mode, ensure microphone is ready. For test mode, input is connected externally.
+        if (!this.inputSource) {
+            await this.ensureMicInput();
+        }
+
         this.mode = mode;
         
         if (mode === ModemMode.ANSWER) {
             this.setState('answering');
             this.log('Ожидание вызова...');
-            // Wait for request tone from caller
             this.listenForTone(REQUEST_FREQ, TIMEOUT_MS).then(found => {
                 if (found) {
                     this.log('Сигнал запроса получен, отправка сигнала готовности...');
@@ -117,7 +124,6 @@ export class Modem {
         } else { // ModemMode.CALL
             this.setState('calling');
             this.log('Вызов... Отправка сигнала запроса.');
-            // Send request tone and wait for carrier from answerer
             this.playTone(REQUEST_FREQ, 500);
             this.listenForTone(CARRIER_FREQ, TIMEOUT_MS).then(found => {
                 if (found) {
@@ -137,7 +143,6 @@ export class Modem {
             this.log('Handshake: Отправка сигнала готовности (carrier)');
             await this.playTone(CARRIER_FREQ, 1000);
         }
-        // In a real scenario, more parameter negotiation would happen here.
         this.log('Handshake завершен. Соединение установлено.');
         this.setState('connected');
         this.startListeningForData();
@@ -146,7 +151,7 @@ export class Modem {
     private async playTone(freq: number, duration: number): Promise<void> {
        return new Promise(resolve => {
            this.synth?.triggerAttackRelease(freq, duration / 1000, Tone.now());
-           setTimeout(resolve, duration + 50); // tone duration + small gap
+           setTimeout(resolve, duration + 50);
        })
     }
 
@@ -157,7 +162,6 @@ export class Modem {
             const charCode = char.charCodeAt(0);
             this.log(`Отправка символа '${char}' (0x${charCode.toString(16)})`);
             const bits: number[] = [];
-            // LSB first
             for (let i = 0; i < 8; i++) {
                 bits.push((charCode >> i) & 1);
             }
@@ -170,7 +174,7 @@ export class Modem {
     }
 
     private startListeningForData() {
-        if (this.analysisFrameId) return; // Already listening
+        if (this.analysisFrameId) return;
 
         let bitBuffer: number[] = [];
         let lastBitTime = 0;
@@ -195,17 +199,15 @@ export class Modem {
                     lastBitTime = now;
 
                     if (bitBuffer.length === 8) {
-                        // LSB first
                         const charCode = parseInt(bitBuffer.reverse().join(''), 2);
                         const char = String.fromCharCode(charCode);
                         this.log(`Принят байт 0x${charCode.toString(16)}, символ '${char}'`);
                         this.onDataReceived(char);
                         bitBuffer = [];
-                        isReceiving = false; // Ready for next character
+                        isReceiving = false;
                     }
                 }
             } else if (isReceiving && now - lastBitTime > (BIT_DURATION * 1000 * 2)) {
-                // Timeout while receiving bits of a character
                 this.log(`Таймаут при приеме битов, буфер сброшен: [${bitBuffer.join('')}]`, 'warning');
                 bitBuffer = [];
                 isReceiving = false;
@@ -254,9 +256,9 @@ export class Modem {
             }
         }
         
-        if (maxVal > 50) { // Lowered threshold
+        if (maxVal > 50) {
             const frequency = maxIndex * (this.audioContext.sampleRate / this.analyser.fftSize);
-            if (frequency > 500) { // Filter out low-frequency noise
+            if (frequency > 500) {
                 return frequency;
             }
         }
@@ -266,11 +268,16 @@ export class Modem {
     
     private async listenForTone(targetFreq: number, timeout: number): Promise<boolean> {
         return new Promise(resolve => {
+            if (!this.analyser) {
+                this.log('Анализатор не инициализирован для прослушивания тона', 'error');
+                resolve(false);
+                return;
+            }
             const startTime = Date.now();
             
             const check = () => {
                 const freq = this.detectFrequency();
-                if (freq && Math.abs(freq - targetFreq) < 20) { // 20Hz tolerance
+                if (freq && Math.abs(freq - targetFreq) < 20) {
                     resolve(true);
                     return;
                 }

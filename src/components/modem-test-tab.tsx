@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useLog } from '@/context/log-context';
@@ -10,7 +10,7 @@ import { Modem, ModemMode, ModemState } from '@/lib/modem';
 import { PhoneCall, PhoneIncoming, Send, XCircle, Link, Unlink, Loader2 } from 'lucide-react';
 import { Separator } from './ui/separator';
 
-const ModemInstance = ({ id, onConnect, modem }: { id: string, onConnect: (outputNode: AudioNode) => void, modem: Modem }) => {
+const ModemInstance = ({ id, modem, isConnected }: { id: string, modem: Modem, isConnected: boolean }) => {
     const [modemState, setModemState] = useState<ModemState>('idle');
     const [receivedText, setReceivedText] = useState('');
     const [textToSend, setTextToSend] = useState('');
@@ -18,19 +18,16 @@ const ModemInstance = ({ id, onConnect, modem }: { id: string, onConnect: (outpu
     useEffect(() => {
         modem.onStateChange = setModemState;
         modem.onDataReceived = (data) => setReceivedText(prev => prev + data);
-
-        const outputNode = modem.getOutputNode();
-        if (outputNode) {
-            onConnect(outputNode);
-        }
-    }, [modem, onConnect]);
+    }, [modem]);
     
     const startCalling = async () => {
+        if (!isConnected) return;
         await modem.initialize();
         modem.start(ModemMode.CALL);
     };
 
     const startAnswering = async () => {
+        if (!isConnected) return;
         await modem.initialize();
         modem.start(ModemMode.ANSWER);
     };
@@ -43,22 +40,22 @@ const ModemInstance = ({ id, onConnect, modem }: { id: string, onConnect: (outpu
     };
 
     const isConnecting = modemState === 'calling' || modemState === 'answering' || modemState === 'handshake';
-    const isConnected = modemState === 'connected';
+    const isActuallyConnected = modemState === 'connected';
     const isIdle = modemState === 'idle' || modemState === 'error';
 
     return (
         <Card className="flex-1">
             <CardHeader>
                 <CardTitle>Модем {id}</CardTitle>
-                <CardDescription>Состояние: <span className={`font-bold ${isConnected ? 'text-green-600' : 'text-muted-foreground'}`}>{modemState}</span></CardDescription>
+                <CardDescription>Состояние: <span className={`font-bold ${isActuallyConnected ? 'text-green-600' : 'text-muted-foreground'}`}>{modemState}</span></CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
-                    <Button onClick={startCalling} disabled={!isIdle}>
+                    <Button onClick={startCalling} disabled={!isIdle || !isConnected}>
                         {isConnecting && modem.mode === ModemMode.CALL ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PhoneCall className="mr-2 h-4 w-4" />}
                         Вызвать
                     </Button>
-                    <Button onClick={startAnswering} variant="secondary" disabled={!isIdle}>
+                    <Button onClick={startAnswering} variant="secondary" disabled={!isIdle || !isConnected}>
                         {isConnecting && modem.mode === ModemMode.ANSWER ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PhoneIncoming className="mr-2 h-4 w-4" />}
                         Ответить
                     </Button>
@@ -76,8 +73,8 @@ const ModemInstance = ({ id, onConnect, modem }: { id: string, onConnect: (outpu
                 <div className="space-y-1">
                     <label className="text-sm font-medium">Отправить:</label>
                      <div className="flex gap-2">
-                        <Textarea value={textToSend} onChange={(e) => setTextToSend(e.target.value)} disabled={!isConnected} />
-                        <Button onClick={handleSend} disabled={!isConnected || !textToSend} size="icon">
+                        <Textarea value={textToSend} onChange={(e) => setTextToSend(e.target.value)} disabled={!isActuallyConnected} />
+                        <Button onClick={handleSend} disabled={!isActuallyConnected || !textToSend} size="icon">
                             <Send className="h-4 w-4" />
                         </Button>
                     </div>
@@ -95,7 +92,7 @@ export function ModemTestTab() {
   const modemA = useMemo(() => new Modem(() => {}, () => {}, addLog, 'A'), [addLog]);
   const modemB = useMemo(() => new Modem(() => {}, () => {}, addLog, 'B'), [addLog]);
 
-  const connectModems = async () => {
+  const connectModems = useCallback(async () => {
     addLog('Соединение виртуальных модемов...');
     await modemA.initialize();
     await modemB.initialize();
@@ -110,17 +107,17 @@ export function ModemTestTab() {
     } else {
         addLog('Не удалось получить выходные узлы модемов.', 'error');
     }
-  };
+  }, [addLog, modemA, modemB]);
 
-  const disconnectModems = () => {
+  const disconnectModems = useCallback(() => {
     addLog('Разъединение виртуальных модемов...');
     modemA.hangup();
+    modemA.disconnectInput();
     modemB.hangup();
+    modemB.disconnectInput();
     setIsConnected(false);
-    // In a real scenario you would need to disconnect the AudioNodes, 
-    // but for this test, hanging up and re-initializing is sufficient.
     addLog('Модемы разъединены.');
-  };
+  }, [addLog, modemA, modemB]);
   
   // Cleanup on component unmount
   useEffect(() => {
@@ -159,8 +156,8 @@ export function ModemTestTab() {
         <Separator/>
 
         <div className="flex flex-col md:flex-row gap-4">
-          <ModemInstance id="A" modem={modemA} onConnect={(node) => modemB.connectInput(node)} />
-          <ModemInstance id="B" modem={modemB} onConnect={(node) => modemA.connectInput(node)} />
+          <ModemInstance id="A" modem={modemA} isConnected={isConnected} />
+          <ModemInstance id="B" modem={modemB} isConnected={isConnected} />
         </div>
       </CardContent>
     </Card>
