@@ -5,10 +5,18 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { PhoneCall, PhoneIncoming, Send, XCircle, Loader2 } from 'lucide-react';
+import { PhoneCall, PhoneIncoming, Send, XCircle, Loader2, PlusCircle } from 'lucide-react';
 import { useLog } from '@/context/log-context';
 import { Textarea } from './ui/textarea';
 import { Modem, ModemMode, ModemState } from '@/lib/modem';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+const templates = ["Привет!", "Как дела?", "Встречаемся в 15:00."];
 
 export function ModemTab() {
   const [modem, setModem] = useState<Modem | null>(null);
@@ -124,7 +132,30 @@ export function ModemTab() {
         </div>
 
         <div className="space-y-2">
-             <label htmlFor="send-text" className="text-sm font-medium">Отправить:</label>
+             <div className="flex justify-between items-center mb-2">
+                <label htmlFor="send-text" className="text-sm font-medium">Отправить:</label>
+                 <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <PlusCircle className="mr-2 h-4 w-4" />
+                          Шаблоны
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {templates.map((template, index) => (
+                          <DropdownMenuItem
+                            key={index}
+                            onSelect={() => {
+                              setTextToSend(template);
+                              addLog(`Вставлен шаблон: "${template}"`);
+                            }}
+                          >
+                            {template}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+             </div>
             <div className="flex gap-2">
                 <Textarea id="send-text" value={textToSend} onChange={(e) => setTextToSend(e.target.value)} disabled={!isConnected} placeholder={isConnected ? "Введите текст для отправки" : "Подключитесь для отправки"} />
                 <Button onClick={handleSend} disabled={!isConnected || !textToSend}>
