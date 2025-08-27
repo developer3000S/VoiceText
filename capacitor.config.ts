@@ -5,13 +5,21 @@ const config: CapacitorConfig = {
   appName: 'Голосовой Текст',
   webDir: 'out',
   server: {
-    // androidScheme: 'https', // Раскомментируйте, если возникнут проблемы с HTTP
+    androidScheme: 'https',
   },
   android: {
     permissions: [
       {
         alias: 'microphone',
         name: 'android.permission.RECORD_AUDIO',
+      },
+      {
+        alias: 'storage',
+        name: 'android.permission.READ_EXTERNAL_STORAGE',
+      },
+      {
+        alias: 'storage',
+        name: 'android.permission.WRITE_EXTERNAL_STORAGE',
       },
       {
         alias: 'internet',
